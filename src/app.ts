@@ -1,13 +1,11 @@
-import express from "express";
-import userRoutes from "./routes/users";
+// import express from "express";
+// import userRoutes from "./routes/users";
+// import brandRoutes from "./routes/brands"
+// const app = express();
 
-const app = express();
+// app.use(express.json());
+// app.use("/users", userRoutes);
+// app.use("/brand",brandRoutes )
 
-app.use(express.json());
-app.use("/users", userRoutes);
 
-app.get("/", (req, res) => {
-  res.send("API is running 🚀");
-});
-
-export default app;
+// export default app;

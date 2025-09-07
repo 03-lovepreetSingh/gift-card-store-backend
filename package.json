@@ -31,6 +31,7 @@
     "pg-pool": "^3.10.1"
   },
   "devDependencies": {
+    "@types/axios": "^0.9.36",
     "@types/express": "^5.0.3",
     "@types/node": "^24.3.1",
     "drizzle-kit": "^0.31.4",
