@@ -22,7 +22,9 @@
   },
   "homepage": "https://github.com/03-lovepreetSingh/gift-card-store-backend#readme",
   "dependencies": {
+    "@types/cors": "^2.8.19",
     "axios": "^1.11.0",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "drizzle-orm": "^0.44.5",
     "express": "^5.1.0",
