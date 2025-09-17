@@ -8,6 +8,7 @@ import "./cron/job"; // start cron jobs
 import { startCronJobs } from "./cron/job";
 import ordersRoutes from "./routes/orders";
 import telegramRoutes from "./routes/telegram";
+import paymentRoutes from "./routes/payments";
 import { initializeBot } from "./services/telegramBot";
 
 const app = express();
@@ -27,6 +28,7 @@ app.use("/users", userRoutes);
 app.use("/brand", brandRoutes);
 app.use("/order", ordersRoutes);
 app.use("/api/telegram", telegramRoutes);
+app.use("/api/payments", paymentRoutes);
 
 // Initialize Telegram bot
 if (process.env.NODE_ENV !== 'test') {
