@@ -23,12 +23,14 @@
   "homepage": "https://github.com/03-lovepreetSingh/gift-card-store-backend#readme",
   "dependencies": {
     "@types/cors": "^2.8.19",
+    "@types/node-telegram-bot-api": "^0.64.11",
     "axios": "^1.11.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "drizzle-orm": "^0.44.5",
     "express": "^5.1.0",
     "node-cron": "^4.2.1",
+    "node-telegram-bot-api": "^0.66.0",
     "pg": "^8.16.3",
     "pg-pool": "^3.10.1"
   },
