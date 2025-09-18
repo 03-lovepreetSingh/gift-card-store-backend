@@ -41,6 +41,7 @@ const initializeBot = () => {
     { command: 'help', description: 'Show help information' },
     { command: 'balance', description: 'Check your balance' },
     { command: 'orders', description: 'View your orders' },
+    {command: 'checkout', description: 'Pay  USDT for a gift card'}
   ]);
 
   // Start command handler
