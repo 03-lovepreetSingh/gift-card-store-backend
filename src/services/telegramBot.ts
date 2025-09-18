@@ -41,7 +41,7 @@ const initializeBot = () => {
     { command: 'help', description: 'Show help information' },
     { command: 'balance', description: 'Check your balance' },
     { command: 'orders', description: 'View your orders' },
-    {command: 'checkout', description: 'Pay  USDT for a gift card'},
+    { command: 'checkout', description: 'Pay  USDT for a gift card'},
   ]);
 
   // Start command handler
@@ -52,7 +52,7 @@ const initializeBot = () => {
       `/help - Show help information\n` +
       `/balance - Check your balance\n` +
       `/orders - View your orders\n` +
-      `/checkout - Pay 1 USDT for a gift card`;
+      `/checkout - Pay  USDT for a gift card`;
     
     sendMessage(chatId, welcomeMessage, { parse_mode: 'Markdown' });
   });
