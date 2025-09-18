@@ -3,12 +3,9 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const PLISIO_API_KEY = process.env.PLISIO_API_KEY;
+// Hardcoded API key - In production, use environment variables
+const PLISIO_API_KEY = 'nCAN9ph8JuVBPjt7BGbMsKoWV9b8fL2M87flc7R8eLG8b3N1vJKxM8kV24Wa6bHI';
 const PLISIO_BASE_URL = 'https://plisio.net/api/v1';
-
-if (!PLISIO_API_KEY) {
-  throw new Error('PLISIO_API_KEY is not defined in environment variables');
-}
 
 interface PlisioResponse<T> {
   status: string;
@@ -73,13 +70,23 @@ export interface CreateInvoiceParams {
 export const createInvoice = async (params: CreateInvoiceParams) => {
   try {
     // Validate required parameters
-    if (!params.order_number || !params.currency || !params.amount) {
-      throw new Error('Missing required parameters: order_number, currency, and amount are required');
+    if (!params.order_number || !params.currency) {
+      throw new Error('Missing required parameters: order_number and currency are required');
     }
 
-    // Prepare request parameters
-    const requestParams: Record<string, any> = {
+    // Prepare base parameters with hardcoded values
+    const baseParams = {
       api_key: PLISIO_API_KEY,
+      source_currency: 'USD',
+      language: 'en',
+      allow_anonymous: false,
+      plisio_fee_to_user: false,
+      timeout: 1440, // 24 hours
+    };
+
+    // Merge base params with provided params
+    const requestParams: Record<string, any> = {
+      ...baseParams,
       ...params,
     };
 
@@ -88,10 +95,15 @@ export const createInvoice = async (params: CreateInvoiceParams) => {
       requestParams[key] === undefined && delete requestParams[key]
     );
 
+    console.log('Creating Plisio invoice with params:', JSON.stringify(requestParams, null, 2));
+
     // Make the API request
     const response = await axios.get<PlisioResponse<InvoiceData>>(
       `${PLISIO_BASE_URL}/invoices/new`,
-      { params: requestParams }
+      { 
+        params: requestParams,
+        timeout: 10000 // 10 seconds timeout
+      }
     );
 
     if (response.data.status !== 'success') {

@@ -22,8 +22,8 @@ export interface PaymentData {
 export const createPayment = async (
   userId: number, 
   amount: number, 
-  currency: string = 'USDT',
-  email?: string,
+  currency: string = 'ETH', // Default to ETH as per requirements
+  email: string = 'lovepreetsingh9810573475@gmail.com', // Default email
   metadata: Record<string, any> = {}
 ): Promise<{ success: boolean; data?: PaymentData; error?: string }> => {
   try {
@@ -44,27 +44,25 @@ export const createPayment = async (
       },
     };
 
-    // Create Plisio invoice
+    // Create Plisio invoice with hardcoded values
     const invoice = await createInvoice({
       order_number: orderId,
-      order_name: `Gift Card Purchase - ${orderId}`,
+      order_name: `usdt1`, // Hardcoded as per requirements
       amount: amount,
       currency: currency,
       source_currency: 'USD',
-      source_rate: 1, // 1 USDT = 1 USD (adjust as needed)
-      callback_url: `${appUrl}/api/payments/callback`,
+      source_amount: 3, // Hardcoded as per requirements
+      email: email,
+      callback_url: 'https://gift-card-store-backend.onrender.com//api/payments/callback', // Hardcoded as per requirements
+      // Additional parameters with defaults
       success_url: `${appUrl}/payment/success?orderId=${orderId}`,
       cancel_url: `${appUrl}/payment/cancel?orderId=${orderId}`,
-      email: email || `user-${userId}@giftcardstore.com`,
       description: `Gift Card Purchase - $${amount} ${currency}`,
-      timeout: 1440, // 24 hours
-      allow_anonymous: false, // Require email for all payments
-      language: 'en',
-      plisio_fee_to_user: false, // We'll cover the fees
       metadata: {
         userId,
         orderId,
         type: 'gift-card-purchase',
+        ...metadata // Include any additional metadata
       },
     });
 
