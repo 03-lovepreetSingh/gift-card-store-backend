@@ -20,15 +20,15 @@ export const createPaymentHandler = async (req: Request, res: Response) => {
       metadata
     );
     
-    if (!paymentResult.success) {
+    if (paymentResult.status !== 'success' || !paymentResult.data) {
       return res.status(400).json({
-        success: false,
+        status: 'error',
         error: paymentResult.error || 'Failed to create payment',
       });
     }
     
     res.status(201).json({
-      success: true,
+      status: 'success',
       data: paymentResult.data,
     });
   } catch (error: any) {

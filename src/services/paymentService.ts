@@ -19,13 +19,25 @@ export interface PaymentData {
   metadata?: Record<string, any>;
 }
 
+export interface CreatePaymentResponse {
+  status: 'success' | 'error';
+  data?: {
+    txn_id: string;
+    invoice_url: string;
+    invoice_total_sum: string;
+    order_id: string;
+    user_id: number;
+  };
+  error?: string;
+}
+
 export const createPayment = async (
   userId: number, 
   amount: number, 
-  currency: string = 'ETH', // Default to ETH as per requirements
-  email: string = 'lovepreetsingh9810573475@gmail.com', // Default email
+  currency: string = 'ETH',
+  email: string = 'lovepreetsingh9810573475@gmail.com',
   metadata: Record<string, any> = {}
-): Promise<{ success: boolean; data?: PaymentData; error?: string }> => {
+): Promise<CreatePaymentResponse> => {
   try {
     const orderId = `order_${uuidv4()}`;
     const appUrl = process.env.APP_URL || 'http://localhost:4000';
@@ -44,33 +56,20 @@ export const createPayment = async (
       },
     };
 
-    // Create Plisio invoice with hardcoded values
+    // Create Plisio invoice with required fields only
+    // All other fields are now handled in plisioService
     const invoice = await createInvoice({
       order_number: orderId,
-      order_name: `usdt1`, // Hardcoded as per requirements
-      amount: amount,
-      currency: currency,
-      source_currency: 'USD',
-      source_amount: 3, // Hardcoded as per requirements
-      email: email,
-      callback_url: 'https://gift-card-store-backend.onrender.com//api/payments/callback', // Hardcoded as per requirements
-      // Additional parameters with defaults
-      success_url: `${appUrl}/payment/success?orderId=${orderId}`,
-      cancel_url: `${appUrl}/payment/cancel?orderId=${orderId}`,
-      description: `Gift Card Purchase - $${amount} ${currency}`,
-      metadata: {
-        userId,
-        orderId,
-        type: 'gift-card-purchase',
-        ...metadata // Include any additional metadata
-      },
+    
+      // All other fields are now hardcoded in plisioService
     });
 
     if (!invoice.success || !invoice.data) {
-      console.error('Failed to create invoice:', invoice.error);
+      const errorMessage = invoice.error || 'Failed to create payment invoice';
+      console.error('Failed to create invoice:', errorMessage);
       return {
-        success: false,
-        error: invoice.error || 'Failed to create payment invoice',
+        status: 'error',
+        error: errorMessage,
       };
     }
     
@@ -79,21 +78,34 @@ export const createPayment = async (
     // Update payment data with invoice info
     const payment: PaymentData = {
       ...paymentData,
-      invoiceId: invoiceData.id,
+      invoiceId: invoiceData.txn_id, // Using txn_id from response
       invoiceUrl: invoiceData.invoice_url,
+      amount: parseFloat(invoiceData.invoice_total_sum) || amount, // Use the actual amount from Plisio if available
       status: 'pending',
       updatedAt: new Date(),
     };
 
+    // Save the payment with the updated amount from Plisio
+    paymentData.amount = payment.amount;
+
+    // Save payment to in-memory store (replace with database in production)
     payments.set(orderId, payment);
+    
+    // Return the response in the format matching Plisio's response
     return {
-      success: true,
-      data: payment,
+      status: 'success',
+      data: {
+        txn_id: payment.invoiceId || '',
+        invoice_url: payment.invoiceUrl || '',
+        invoice_total_sum: payment.amount.toString(),
+        order_id: orderId,
+        user_id: userId
+      }
     };
   } catch (error: any) {
     console.error('Error creating payment:', error);
     return {
-      success: false,
+      status: 'error',
       error: error.message || 'Failed to create payment',
     };
   }

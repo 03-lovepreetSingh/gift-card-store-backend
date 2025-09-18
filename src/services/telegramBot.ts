@@ -77,13 +77,19 @@ const initializeBot = () => {
       const loadingMessage = await sendMessage(chatId, '🔄 Creating payment link...');
       
       // Create a payment
-      const payment = await createPayment(chatId, 1, 'USDT');
+      const paymentResponse = await createPayment(chatId, 1, 'USDT');
+      
+      if (paymentResponse.status !== 'success' || !paymentResponse.data) {
+        throw new Error(paymentResponse.error || 'Failed to create payment');
+      }
+      
+      const { data: payment } = paymentResponse;
       
       // Edit the loading message with the payment link
       const paymentMessage = `💳 *Payment Request*\n\n` +
         `Amount: *1 USDT*\n` +
         `Status: *Pending*\n\n` +
-        `[Click here to pay](${payment.invoiceUrl})`;
+        `[Click here to pay](${payment.invoice_url})`;
       
       await bot.editMessageText(paymentMessage, {
         chat_id: chatId,
@@ -91,8 +97,8 @@ const initializeBot = () => {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '💳 Pay Now', url: payment.invoiceUrl }],
-            [{ text: '✅ Check Status', callback_data: `payment_status:${payment.orderId}` }]
+            [{ text: '💳 Pay Now', url: payment.invoice_url }],
+            [{ text: '✅ Check Status', callback_data: `payment_status:${payment.order_id}` }]
           ]
         }
       });

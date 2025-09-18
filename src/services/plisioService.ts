@@ -23,9 +23,7 @@ export interface InvoiceData {
 export interface CreateInvoiceParams {
   // Required parameters
   order_number: string;  // Your order reference ID
-  order_name?: string;   // Order name shown to customer
-  currency: string;      // Currency to receive (e.g., 'BTC', 'ETH', 'USDT')
-  amount: number;        // Amount in the specified currency
+  amount?: number;       // Optional amount (will use source_amount if not provided)
   
   // Optional parameters
   source_currency?: string;  // Fiat currency (e.g., 'USD', 'EUR')
@@ -74,26 +72,19 @@ export const createInvoice = async (params: CreateInvoiceParams) => {
       throw new Error('Missing required parameters: order_number and currency are required');
     }
 
-    // Prepare base parameters with hardcoded values
-    const baseParams = {
+    // Only include the required fields in the request
+    const requestParams: Record<string, any> = {
       api_key: PLISIO_API_KEY,
       source_currency: 'USD',
-      language: 'en',
-      allow_anonymous: false,
-      plisio_fee_to_user: false,
-      timeout: 1440, // 24 hours
+      source_amount: 3,
+      order_number: params.order_number,
+      currency: 'ETH',
+      email: 'lovepreetsingh9810573475@gmail.com',
+      order_name: 'usdt1',
+      callback_url: 'https://gift-card-store-backend.onrender.com//api/payments/callback',
+      // Include amount if provided, otherwise it will be calculated from source_amount
+    
     };
-
-    // Merge base params with provided params
-    const requestParams: Record<string, any> = {
-      ...baseParams,
-      ...params,
-    };
-
-    // Remove any undefined values
-    Object.keys(requestParams).forEach(key => 
-      requestParams[key] === undefined && delete requestParams[key]
-    );
 
     console.log('Creating Plisio invoice with params:', JSON.stringify(requestParams, null, 2));
 
