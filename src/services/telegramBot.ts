@@ -41,7 +41,7 @@ const initializeBot = () => {
     { command: 'help', description: 'Show help information' },
     { command: 'balance', description: 'Check your balance' },
     { command: 'orders', description: 'View your orders' },
-    {command: 'checkout', description: 'Pay  USDT for a gift card'}
+    {command: 'checkout', description: 'Pay  USDT for a gift card'},
   ]);
 
   // Start command handler
@@ -88,7 +88,7 @@ const initializeBot = () => {
       
       // Edit the loading message with the payment link
       const paymentMessage = `💳 *Payment Request*\n\n` +
-        `Amount: *1 USDT*\n` +
+        `Amount: * USDT*\n` +
         `Status: *Pending*\n\n` +
         `[Click here to pay](${payment.invoice_url})`;
       
