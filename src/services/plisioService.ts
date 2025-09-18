@@ -68,7 +68,7 @@ export interface CreateInvoiceParams {
 export const createInvoice = async (params: CreateInvoiceParams) => {
   try {
     // Validate required parameters
-    if (!params.order_number || !params.currency) {
+    if (!params.order_number ) {
       throw new Error('Missing required parameters: order_number and currency are required');
     }
 
