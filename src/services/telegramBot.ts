@@ -116,8 +116,20 @@ const initializeBot = () => {
 
   // Brands command handler
   registerCommand('brands', async (chatId) => {
-    const res = mockResponse(chatId);
-    await getBrands({ query: {} } as Request, res as Response);
+    try {
+      console.log('Fetching brands...');
+      const res = mockResponse(chatId);
+      const brands = await getBrands({ 
+        query: {},
+        params: {},
+        body: {},
+        headers: {}
+      } as unknown as Request, res as Response);
+      console.log('Brands response:', brands);
+    } catch (error) {
+      console.error('Error in brands command:', error);
+      bot.sendMessage(chatId, '❌ Failed to fetch brands. Please try again later.');
+    }
   });
 
   // Brand command handler
