@@ -127,11 +127,7 @@ const initializeBot = () => {
       
       const response = await axios.get('https://gift-card-store-backend.onrender.com/brand');
       
-
-      const giftCards: GiftCard[] = transformApiDataToGiftCards(response.data);
-      
-      // Log the transformed gift cards data
-      console.log('Transformed Gift Cards Data:', JSON.stringify(giftCards, null, 2));
+      console.log('API Response: dlsknvkldnklnavl kvd l v  vkl vkldvklv k  vknvksdnkvlnk', response?.data);
       // Ensure response.data is an array before processing
       if (!Array.isArray(response?.data)) {
         console.error('Invalid API response format:', response?.data);
