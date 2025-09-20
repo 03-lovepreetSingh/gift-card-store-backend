@@ -4,6 +4,51 @@ import { createPayment, getPaymentStatus } from './paymentService';
 import { getBrands, getBrandById } from '../controllers/brandControllers';
 import { Request, Response } from 'express';
 import axios from 'axios';
+
+interface Brand {
+  id: string;
+  status: string;
+  title: string;
+  brandDescription: string | null;
+  category: string[];
+  tags: string[];
+  denominationType: string;
+  cardType: string;
+  redemptionType: string;
+  amountRestrictions: {
+    minAmount: number;
+    maxAmount: number;
+    minOrderAmount: number;
+    maxOrderAmount: number;
+    minVoucherAmount: number;
+    maxVoucherAmount: number;
+    maxVouchersPerOrder: number;
+    maxVouchersPerDenomination: number | null;
+    maxDenominationsPerOrder: number | null;
+    denominations: number[];
+  };
+  iconImageUrl: string;
+  thumbnailUrl: string;
+  logoUrl: string;
+  tncUrl: string;
+  termsAndConditions: string[];
+  usageInstructions: {
+    ONLINE: string[];
+  };
+  howToUseInstructions: Array<{
+    retailMode: string;
+    retailModeName: string;
+    instructions: string[];
+  }>;
+  canBalanceBeFetched: boolean;
+  voucherExpiryInMonths: number | null;
+  variantDetails: any[]; // Update with proper type if variant structure is known
+  discountPercentage: number | null;
+}
+
+interface BrandResponse extends Brand {
+  // Add any additional fields from the API response if needed
+}
 import { 
   transformApiDataToGiftCards, 
   getUniqueCategories,
@@ -327,19 +372,134 @@ const initializeBot = () => {
 
   // Brand command handler
   registerCommand('brand', async (chatId, match) => {
-    if (!match || !match[1]) {
-      return bot.sendMessage(chatId, 'Please provide a brand ID. Example: /brand 123');
+    try {
+      if (!match || !match[1]) {
+        return bot.sendMessage(
+          chatId, 
+          '❌ Please provide a brand ID.\n\n' +
+          'Example: `/brand 123`\n' +
+          'To find brand IDs, use the `/brands` command.',
+          { parse_mode: 'Markdown' }
+        );
+      }
+
+      const brandId = match[1].trim();
+      const loadingMsg = await bot.sendMessage(chatId, '🔍 Fetching brand details...');
+
+      try {
+        // Fetch brand details from the API with type safety
+        const response = await axios.get<Brand>(`https://gift-card-store-backend.onrender.com/brand/${brandId}`);
+        const brand = response.data;
+
+        if (!brand) {
+          return bot.editMessageText(
+            '❌ Brand not found. Please check the brand ID and try again.',
+            { chat_id: chatId, message_id: loadingMsg.message_id }
+          );
+        }
+
+        // Format brand details with type safety
+        const defaultDenomination = brand.amountRestrictions?.denominations?.[0] || 0;
+        const priceInEth = (defaultDenomination / 3500).toFixed(6);
+        const categories = Array.isArray(brand.category) 
+          ? brand.category.join(', ')
+          : brand.category || 'General';
+        const tags = Array.isArray(brand.tags) ? brand.tags.join(', ') : '';
+        
+        // Build the message
+        let message = `🎁 *${brand.title || 'Unnamed Brand'}*\n\n`;
+        
+        // Add images if available
+        const imageUrl = brand.thumbnailUrl || brand.iconImageUrl || brand.logoUrl;
+        if (imageUrl) {
+          message += `🖼 [View Image](${imageUrl})\n\n`;
+        }
+
+        // Add description
+        if (brand.brandDescription) {
+          message += `📝 *Description:*\n${brand.brandDescription}\n\n`;
+        }
+
+        // Add price information
+        message += `💰 *Price:* $${defaultDenomination.toFixed(2)}\n`;
+        message += `🪙 *In Crypto:* ${priceInEth} ETH (≈ $${defaultDenomination.toFixed(2)})\n\n`;
+
+        // Add categories and tags
+        message += `🏷 *Categories:* ${categories}\n`;
+        if (tags) {
+          message += `🏷 *Tags:* ${tags}\n`;
+        }
+        message += `\n`;
+
+        // Add terms and conditions if available
+        if (brand.termsAndConditions?.length > 0) {
+          const termsPreview = brand.termsAndConditions
+            .slice(0, 3) // Show first 3 terms
+            .map((term: string, index: number) => `${index + 1}. ${term}`)
+            .join('\n');
+          
+          message += `📜 *Terms & Conditions:*\n${termsPreview}`;
+          if (brand.termsAndConditions.length > 3) {
+            message += `\n_+ ${brand.termsAndConditions.length - 3} more terms_`;
+          }
+          message += '\n\n';
+        }
+        if (brand.tncUrl) {
+          message += `[📄 Full Terms & Conditions](${brand.tncUrl})\n\n`;
+        }
+
+        // Add usage instructions if available
+        const onlineInstructions = brand.usageInstructions?.ONLINE || 
+          brand.howToUseInstructions?.find((inst) => inst.retailMode === 'ONLINE')?.instructions || [];
+        
+        if (onlineInstructions.length > 0) {
+          message += `ℹ️ *How to use:*\n${onlineInstructions[0]}\n`;
+          if (onlineInstructions.length > 1) {
+            message += `_+ ${onlineInstructions.length - 1} more steps_\n`;
+          }
+        }
+
+        // Send the formatted message
+        await bot.editMessageText(message, {
+          chat_id: chatId,
+          message_id: loadingMsg.message_id,
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true,
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { 
+                  text: '🛒 Add to Cart',
+                  callback_data: `add_to_cart_${brandId}`
+                },
+                { 
+                  text: '🔙 Back to Brands',
+                  callback_data: 'show_brands'
+                }
+              ]
+            ]
+          }
+        });
+
+      } catch (error: any) {
+        console.error('Error fetching brand details:', error);
+        const errorMessage = error.response?.status === 404 
+          ? '❌ Brand not found. Please check the brand ID and try again.'
+          : '❌ Failed to fetch brand details. Please try again later.';
+        
+        await bot.editMessageText(errorMessage, {
+          chat_id: chatId,
+          message_id: loadingMsg.message_id
+        });
+      }
+    } catch (error) {
+      console.error('Error in brand command:', error);
+      bot.sendMessage(
+        chatId,
+        '❌ An error occurred while processing your request. Please try again.',
+        { parse_mode: 'Markdown' }
+      );
     }
-    const brandId = match[1].trim();
-    const req = {
-      params: { productId: brandId },
-      query: {},
-      body: {},
-      headers: {},
-      // Add other required Request properties as needed
-    } as unknown as Request;
-    const res = mockResponse(chatId);
-    await getBrandById(req, res as Response);
   });
 
   // Checkout command handler
