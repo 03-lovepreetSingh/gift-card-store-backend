@@ -135,6 +135,9 @@ const initializeBot = () => {
       
       const giftCards: GiftCard[] = transformApiDataToGiftCards(response.data);
       
+      // Log the transformed gift cards data
+      console.log('Transformed Gift Cards Data:', JSON.stringify(giftCards, null, 2));
+      
       if (!Array.isArray(giftCards) || giftCards.length === 0) {
         return bot.editMessageText('No active brands found.', { 
           chat_id: chatId, 
@@ -164,7 +167,12 @@ const initializeBot = () => {
       // Get unique categories for filtering
       const categories = getUniqueCategories(giftCards);
       
-      await bot.editMessageText(`*Available Gift Cards (${giftCards.length})*:\n\n${brandsList}`, {
+      const messageContent = `*Available Gift Cards (${giftCards.length})*:\n\n${brandsList}`;
+      
+      // Log the final message content that will be sent to Telegram
+      console.log('Message content to be sent to Telegram:', messageContent);
+      
+      await bot.editMessageText(messageContent, {
         chat_id: chatId,
         message_id: loadingMsg.message_id,
         parse_mode: 'Markdown',
@@ -187,7 +195,12 @@ const initializeBot = () => {
       });
       
     } catch (error) {
-      console.error('Error in brands command:', error);
+      console.error('Error in brands command:');
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data
+      });
       bot.sendMessage(
         chatId, 
         '❌ Failed to fetch brands. Please try again later.',
