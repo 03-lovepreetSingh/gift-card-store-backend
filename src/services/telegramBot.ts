@@ -117,13 +117,45 @@ const initializeBot = () => {
   // Brands command handler
   registerCommand('brands', async (chatId) => {
     try {
-      console.log('Fetching brands...');
-      const res = mockResponse(chatId);
-      const brands = await getBrands({} as Request, res as Response);
-      console.log('Brands response:', brands);
+      const loadingMsg = await bot.sendMessage(chatId, '🔄 Fetching brands...');
+      
+      const response = await axios.get('https://gift-card-store-backend.onrender.com/brand');
+      const brands = response.data;
+      
+      if (!Array.isArray(brands) || brands.length === 0) {
+        return bot.editMessageText('No brands found.', { chat_id: chatId, message_id: loadingMsg.message_id });
+      }
+      
+      // Format brands list with emojis
+      const brandsList = brands.map((brand: any) => 
+        `🎁 *${brand.name || 'Unnamed Brand'}*\n` +
+        `🆔 ${brand.id || 'N/A'}\n` +
+        `---------------------`
+      ).join('\n\n');
+      
+      await bot.editMessageText(`*Available Brands*:\n\n${brandsList}`, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            ...brands.map((brand: any) => [
+              { 
+                text: `View ${brand.name || 'Brand'}`,
+                callback_data: `brand_${brand.id}`
+              }
+            ])
+          ]
+        }
+      });
+      
     } catch (error) {
       console.error('Error in brands command:', error);
-      bot.sendMessage(chatId, '❌ Failed to fetch brands. Please try again later.');
+      bot.sendMessage(
+        chatId, 
+        '❌ Failed to fetch brands. Please try again later.',
+        { parse_mode: 'Markdown' }
+      );
     }
   });
 

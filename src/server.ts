@@ -10,10 +10,14 @@ import ordersRoutes from "./routes/orders";
 import telegramRoutes from "./routes/telegram";
 import paymentRoutes from "./routes/payments";
 import { initializeBot } from "./services/telegramBot";
+import { getBrands } from "./controllers/brandControllers";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-
+async function startServer() {
+  const  brands = await getBrands;
+  console.log("routersdvdsvsvsvdvdsvdsv",brands);
+}
 // ✅ Enable CORS for any site
 app.use(cors({ origin: "*" }));
 
@@ -37,5 +41,6 @@ if (process.env.NODE_ENV !== 'test') {
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
+startServer();
   startCronJobs();
 });
