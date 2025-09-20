@@ -125,21 +125,60 @@ const initializeBot = () => {
     try {
       const loadingMsg = await bot.sendMessage(chatId, '🔄 Fetching brands...');
       
+      // Fetch brands from the API
       const response = await axios.get('https://gift-card-store-backend.onrender.com/brand');
       
-      console.log('API Response: dlsknvkldnklnavl kvd l v  vkl vkldvklv k  vknvksdnkvlnk', response?.data);
+      // Log the raw API response for debugging
+      console.log('Raw API Response:', JSON.stringify(response?.data, null, 2));
+      
       // Ensure response.data is an array before processing
       if (!Array.isArray(response?.data)) {
         console.error('Invalid API response format:', response?.data);
         throw new Error('Invalid response format from server');
       }
       
-      const giftCards: GiftCard[] = transformApiDataToGiftCards(response.data);
+      // Process the API response directly
+      const giftCards = response.data.map((brand: any) => {
+        const defaultDenomination = brand.amountRestrictions?.denominations?.[0] || 0;
+        const categories = Array.isArray(brand.category) ? brand.category : [];
+        const category = categories[0] || 'General';
+        const tags = Array.isArray(brand.tags) ? brand.tags : [];
+        const isPopular = (brand.discountPercentage > 0) || tags.includes('popular') || false;
+        
+        // Format price in ETH (using the same conversion as before)
+        const priceInEth = (defaultDenomination / 3500).toFixed(6);
+        
+        return {
+          id: brand.id,
+          title: brand.title,
+          brand: brand.title,
+          brandDescription: brand.brandDescription || `${brand.title} gift card`,
+          description: brand.brandDescription || `${brand.title} gift card - Perfect for shopping and gifting`,
+          price: defaultDenomination,
+          denomination: defaultDenomination,
+          priceInEth,
+          priceInUsd: defaultDenomination.toFixed(2),
+          category,
+          image: brand.thumbnailUrl || brand.iconImageUrl,
+          iconImageUrl: brand.iconImageUrl,
+          thumbnailUrl: brand.thumbnailUrl,
+          logoUrl: brand.logoUrl,
+          termsAndConditions: brand.termsAndConditions,
+          tncUrl: brand.tncUrl,
+          isPopular,
+          inStock: brand.status === 'ACTIVE',
+          cryptoPrice: `≈ ${priceInEth} ETH`,
+          discountPercentage: brand.discountPercentage,
+          availableDenominations: brand.amountRestrictions?.denominations || [],
+          usageInstructions: brand.usageInstructions?.ONLINE || 
+                           brand.howToUseInstructions?.find((inst: any) => inst.retailMode === 'ONLINE')?.instructions || []
+        };
+      });
       
-      // Log the transformed gift cards data
-      console.log('Transformed Gift Cards Data:', JSON.stringify(giftCards, null, 2));
+      // Log the processed gift cards for debugging
+      console.log('Processed Gift Cards:', JSON.stringify(giftCards, null, 2));
       
-      if (!Array.isArray(giftCards) || giftCards.length === 0) {
+      if (giftCards.length === 0) {
         return bot.editMessageText('No active brands found.', { 
           chat_id: chatId, 
           message_id: loadingMsg.message_id 
@@ -147,20 +186,31 @@ const initializeBot = () => {
       }
       
       // Format gift cards list with emojis and details
-      const brandsList = giftCards.map((card: GiftCard) => {
-        let priceText = `💰 *$${card.priceInUsd}*`;
+      const brandsList = giftCards.map((card: any) => {
+        // Use the first image available in this order: thumbnail, icon, logo
+        const imageUrl = card.thumbnailUrl || card.iconImageUrl || card.logoUrl || '';
         
-        // Add discounted price if available
-        if (card.discountedPriceInUsd) {
-          priceText = `💰 ~~$${card.priceInUsd}~~ *$${card.discountedPriceInUsd}* ` +
+        // Format price with discount if available
+        let priceText = `💰 *$${parseFloat(card.priceInUsd).toFixed(2)}*`;
+        if (card.discountPercentage > 0) {
+          const discountedPrice = (card.price * (1 - (card.discountPercentage / 100))).toFixed(2);
+          priceText = `💰 ~~$${card.priceInUsd}~~ *$${discountedPrice}* ` +
                      `(${card.discountPercentage}% off! 🎉)`;
         }
         
+        // Truncate description if too long
+        const shortDescription = card.brandDescription && card.brandDescription.length > 100 
+          ? card.brandDescription.substring(0, 100) + '...' 
+          : card.brandDescription || '';
+        
         return (
-          `🎁 *${card.brand || 'Unnamed Brand'}*\n` +
+          `🎁 *${card.title || 'Unnamed Brand'}*\n` +
+          (imageUrl ? `🖼 [View Image](${imageUrl})\n` : '') +
+          (shortDescription ? `📝 ${shortDescription}\n` : '') +
           `${priceText}\n` +
           `🪙 ${card.priceInEth} ETH (≈ $${card.priceInUsd})\n` +
           (card.inStock ? '✅ In Stock' : '❌ Out of Stock') + '\n' +
+          (card.tncUrl ? `📄 [Terms & Conditions](${card.tncUrl})\n` : '') +
           `---------------------`
         );
       }).join('\n\n');
@@ -173,19 +223,54 @@ const initializeBot = () => {
       // Log the final message content that will be sent to Telegram
       console.log('Message content to be sent to Telegram:', messageContent);
       
+      // Create inline keyboard with pagination (10 items per page)
+      const itemsPerPage = 10;
+      const totalPages = Math.ceil(giftCards.length / itemsPerPage);
+      
+      // Get current page items (first page by default)
+      const currentPage = 1;
+      const startIdx = (currentPage - 1) * itemsPerPage;
+      const endIdx = startIdx + itemsPerPage;
+      const currentItems = giftCards.slice(startIdx, endIdx);
+      
+      // Create buttons for current page items
+      const itemButtons = currentItems.map((card: any) => [
+        { 
+          text: `🛒 ${card.title} - $${card.priceInUsd}`,
+          callback_data: `view_${card.id}`
+        }
+      ]);
+      
+      // Add pagination buttons if needed
+      const paginationButtons = [];
+      if (totalPages > 1) {
+        const row = [];
+        if (currentPage > 1) {
+          row.push({
+            text: '⬅️ Previous',
+            callback_data: `page_${currentPage - 1}`
+          });
+        }
+        if (currentPage < totalPages) {
+          row.push({
+            text: 'Next ➡️',
+            callback_data: `page_${currentPage + 1}`
+          });
+        }
+        if (row.length > 0) {
+          paginationButtons.push(row);
+        }
+      }
+      
       await bot.editMessageText(messageContent, {
         chat_id: chatId,
         message_id: loadingMsg.message_id,
         parse_mode: 'Markdown',
+        disable_web_page_preview: true, // Disable link previews to make messages cleaner
         reply_markup: {
           inline_keyboard: [
-            // View buttons for each gift card
-            ...giftCards.map((card: GiftCard) => [
-              { 
-                text: `🛒 ${card.brand} - $${card.discountedPriceInUsd || card.priceInUsd}`,
-                callback_data: `view_${card.id}`
-              }
-            ]),
+            ...itemButtons,
+            ...paginationButtons,
             // Category filter buttons (first 3 categories)
             categories.slice(0, 3).map(category => ({
               text: `#${category}`,
@@ -195,13 +280,25 @@ const initializeBot = () => {
         }
       });
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error in brands command:');
-      console.error('Error details:', {
-        message: error.message,
-        stack: error.stack,
-        response: error.response?.data
-      });
+      
+      // Handle different types of errors
+      if (error instanceof Error) {
+        console.error('Error details:', {
+          message: error.message,
+          stack: error.stack
+        });
+      } else if (typeof error === 'object' && error !== null) {
+        // Handle axios errors
+        const axiosError = error as { response?: { data?: unknown } };
+        console.error('API Error:', {
+          response: axiosError.response?.data,
+          raw: error
+        });
+      } else {
+        console.error('Unknown error:', error);
+      }
       bot.sendMessage(
         chatId, 
         '❌ Failed to fetch brands. Please try again later.',
