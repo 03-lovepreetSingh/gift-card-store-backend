@@ -128,9 +128,19 @@ const initializeBot = () => {
       // Fetch brands from the API
       const response = await axios.get('https://gift-card-store-backend.onrender.com/brand');
       
-      // Log the raw API response for debugging
-      console.log('Raw API Response:', JSON.stringify(response?.data, null, 2));
-      bot.sendMessage(chatId, JSON.stringify(response?.data, null, 2));
+      // Log the raw API response for debugging (first 2 items only to avoid large logs)
+      const sampleData = Array.isArray(response?.data) ? response.data.slice(0, 2) : response?.data;
+      console.log('Sample API Response (first 2 items):', JSON.stringify(sampleData, null, 2));
+      
+      // Send a summary instead of the full response
+      if (Array.isArray(response?.data)) {
+        await bot.sendMessage(
+          chatId, 
+          `📊 Found ${response.data.length} brands\n` +
+          `🔍 Sample IDs: ${response.data.slice(0, 3).map(b => b.id).join(', ')}`
+        );
+      }
+      
       // Ensure response.data is an array before processing
       if (!Array.isArray(response?.data)) {
         console.error('Invalid API response format:', response?.data);
@@ -175,8 +185,16 @@ const initializeBot = () => {
         };
       });
       
-      // Log the processed gift cards for debugging
-      console.log('Processed Gift Cards:', JSON.stringify(giftCards, null, 2));
+      // Log a summary of processed gift cards for debugging
+      console.log(`Processed ${giftCards.length} gift cards`);
+      if (giftCards.length > 0) {
+        console.log('Sample processed card:', JSON.stringify({
+          id: giftCards[0].id,
+          brand: giftCards[0].brand,
+          price: giftCards[0].price,
+          category: giftCards[0].category
+        }, null, 2));
+      }
       
       if (giftCards.length === 0) {
         return bot.editMessageText('No active brands found.', { 
