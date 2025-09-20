@@ -121,7 +121,7 @@ const initializeBot = () => {
       
       const response = await axios.get('https://gift-card-store-backend.onrender.com/brand');
       const brands = response.data;
-      
+      console.log("dcvaklncklasncklnaklcsnlksnkacnkacn",brands);
       if (!Array.isArray(brands) || brands.length === 0) {
         return bot.editMessageText('No brands found.', { chat_id: chatId, message_id: loadingMsg.message_id });
       }
