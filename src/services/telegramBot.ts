@@ -119,12 +119,7 @@ const initializeBot = () => {
     try {
       console.log('Fetching brands...');
       const res = mockResponse(chatId);
-      const brands = await getBrands({ 
-        query: {},
-        params: {},
-        body: {},
-        headers: {}
-      } as unknown as Request, res as Response);
+      const brands = await getBrands({} as Request, res as Response);
       console.log('Brands response:', brands);
     } catch (error) {
       console.error('Error in brands command:', error);
