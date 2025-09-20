@@ -1,6 +1,8 @@
 import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
 import { createPayment, getPaymentStatus } from './paymentService';
+import { getBrands, getBrandById } from '../controllers/brandControllers';
+import { Request, Response } from 'express';
 
 dotenv.config();
 
@@ -15,6 +17,41 @@ const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
 // Store active commands and their handlers
 const commands: {[key: string]: (chatId: number, match?: RegExpExecArray | null) => void} = {};
+
+// Mock Express response object for use with existing controllers
+const mockResponse = (chatId: number) => ({
+  json: (data: any) => {
+    if (Array.isArray(data)) {
+      // Format brands list
+      const message = data.map((brand: any) => 
+        `🎁 *${brand.name}* (${brand.id})\n${brand.description || 'No description'}\n`
+      ).join('\n');
+      bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+    } else {
+      // Format single brand
+      const brand = data;
+      const message = `*${brand.name}* (${brand.id})\n\n${brand.description || 'No description'}\n\n` +
+        `💵 *Price:* $${brand.price || 'N/A'}\n` +
+        `📦 *In Stock:* ${brand.inStock ? '✅' : '❌'}\n` +
+        `🔗 *More Info:* ${brand.url || 'N/A'}`;
+      
+      bot.sendMessage(chatId, message, { 
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🛒 Buy Now', callback_data: `buy_${brand.id}` }],
+            [{ text: '🔙 Back to List', callback_data: 'list_brands' }]
+          ]
+        }
+      });
+    }
+  },
+  status: (code: number) => ({
+    json: (error: { error: string }) => {
+      bot.sendMessage(chatId, `❌ Error: ${error.error}`);
+    }
+  })
+});
 
 // Register a command handler
 const registerCommand = (command: string, handler: (chatId: number, match?: RegExpExecArray | null) => void) => {
@@ -42,6 +79,8 @@ const initializeBot = () => {
     { command: 'balance', description: 'Check your balance' },
     { command: 'orders', description: 'View your orders' },
     { command: 'checkout', description: 'Pay  USDT for a gift card'},
+    { command: 'brands', description: 'List all available brands' },
+    { command: 'brand', description: 'View brand details' },
   ]);
 
   // Start command handler
@@ -52,6 +91,8 @@ const initializeBot = () => {
       `/help - Show help information\n` +
       `/balance - Check your balance\n` +
       `/orders - View your orders\n` +
+      `/brands - List all available brands\n` +
+      `/brand [id] - View brand details\n` +
       `/checkout - Pay  USDT for a gift card`;
     
     sendMessage(chatId, welcomeMessage, { parse_mode: 'Markdown' });
@@ -65,10 +106,35 @@ const initializeBot = () => {
       `/help - Show this help message\n` +
       `/balance - Check your account balance\n` +
       `/orders - View your recent orders\n` +
+      `/brands - List all available brands\n` +
+      `/brand [id] - View brand details\n` +
       `/checkout - Pay 1 USDT for a gift card\n\n` +
       `Need more help? Contact support.`;
     
     sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
+  });
+
+  // Brands command handler
+  registerCommand('brands', async (chatId) => {
+    const res = mockResponse(chatId);
+    await getBrands({ query: {} } as Request, res as Response);
+  });
+
+  // Brand command handler
+  registerCommand('brand', async (chatId, match) => {
+    if (!match || !match[1]) {
+      return bot.sendMessage(chatId, 'Please provide a brand ID. Example: /brand 123');
+    }
+    const brandId = match[1].trim();
+    const req = {
+      params: { productId: brandId },
+      query: {},
+      body: {},
+      headers: {},
+      // Add other required Request properties as needed
+    } as unknown as Request;
+    const res = mockResponse(chatId);
+    await getBrandById(req, res as Response);
   });
 
   // Checkout command handler
