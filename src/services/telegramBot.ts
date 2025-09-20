@@ -4,6 +4,11 @@ import { createPayment, getPaymentStatus } from './paymentService';
 import { getBrands, getBrandById } from '../controllers/brandControllers';
 import { Request, Response } from 'express';
 import axios from 'axios';
+import { 
+  transformApiDataToGiftCards, 
+  getUniqueCategories,
+  type GiftCard
+} from '../utils/giftCardUtils';
 dotenv.config();
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -114,37 +119,69 @@ const initializeBot = () => {
     sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
   });
 
+
   // Brands command handler
   registerCommand('brands', async (chatId) => {
     try {
       const loadingMsg = await bot.sendMessage(chatId, '🔄 Fetching brands...');
       
       const response = await axios.get('https://gift-card-store-backend.onrender.com/brand');
-      const brands = response.data;
-      console.log("dcvaklncklasncklnaklcsnlksnkacnkacn",brands);
-      if (!Array.isArray(brands) || brands.length === 0) {
-        return bot.editMessageText('No brands found.', { chat_id: chatId, message_id: loadingMsg.message_id });
+      
+      // Ensure response.data is an array before processing
+      if (!Array.isArray(response?.data)) {
+        console.error('Invalid API response format:', response?.data);
+        throw new Error('Invalid response format from server');
       }
       
-      // Format brands list with emojis
-      const brandsList = brands.map((brand: any) => 
-        `🎁 *${brand.name || 'Unnamed Brand'}*\n` +
-        `🆔 ${brand.id || 'N/A'}\n` +
-        `---------------------`
-      ).join('\n\n');
+      const giftCards: GiftCard[] = transformApiDataToGiftCards(response.data);
       
-      await bot.editMessageText(`*Available Brands*:\n\n${brandsList}`, {
+      if (!Array.isArray(giftCards) || giftCards.length === 0) {
+        return bot.editMessageText('No active brands found.', { 
+          chat_id: chatId, 
+          message_id: loadingMsg.message_id 
+        });
+      }
+      
+      // Format gift cards list with emojis and details
+      const brandsList = giftCards.map((card: GiftCard) => {
+        let priceText = `💰 *$${card.priceInUsd}*`;
+        
+        // Add discounted price if available
+        if (card.discountedPriceInUsd) {
+          priceText = `💰 ~~$${card.priceInUsd}~~ *$${card.discountedPriceInUsd}* ` +
+                     `(${card.discountPercentage}% off! 🎉)`;
+        }
+        
+        return (
+          `🎁 *${card.brand || 'Unnamed Brand'}*\n` +
+          `${priceText}\n` +
+          `🪙 ${card.priceInEth} ETH (≈ $${card.priceInUsd})\n` +
+          (card.inStock ? '✅ In Stock' : '❌ Out of Stock') + '\n' +
+          `---------------------`
+        );
+      }).join('\n\n');
+      
+      // Get unique categories for filtering
+      const categories = getUniqueCategories(giftCards);
+      
+      await bot.editMessageText(`*Available Gift Cards (${giftCards.length})*:\n\n${brandsList}`, {
         chat_id: chatId,
         message_id: loadingMsg.message_id,
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            ...brands.map((brand: any) => [
+            // View buttons for each gift card
+            ...giftCards.map((card: GiftCard) => [
               { 
-                text: `View ${brand.name || 'Brand'}`,
-                callback_data: `brand_${brand.id}`
+                text: `🛒 ${card.brand} - $${card.discountedPriceInUsd || card.priceInUsd}`,
+                callback_data: `view_${card.id}`
               }
-            ])
+            ]),
+            // Category filter buttons (first 3 categories)
+            categories.slice(0, 3).map(category => ({
+              text: `#${category}`,
+              callback_data: `filter_category_${category}`
+            }))
           ]
         }
       });
