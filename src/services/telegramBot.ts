@@ -130,7 +130,7 @@ const initializeBot = () => {
       
       // Log the raw API response for debugging
       console.log('Raw API Response:', JSON.stringify(response?.data, null, 2));
-      
+      bot.sendMessage(chatId, JSON.stringify(response?.data, null, 2));
       // Ensure response.data is an array before processing
       if (!Array.isArray(response?.data)) {
         console.error('Invalid API response format:', response?.data);
@@ -138,7 +138,7 @@ const initializeBot = () => {
       }
       
       // Process the API response directly
-      const giftCards = response.data.map((brand: any) => {
+      const giftCards = response.data.map((brand: any) => {   
         const defaultDenomination = brand.amountRestrictions?.denominations?.[0] || 0;
         const categories = Array.isArray(brand.category) ? brand.category : [];
         const category = categories[0] || 'General';
@@ -147,7 +147,7 @@ const initializeBot = () => {
         
         // Format price in ETH (using the same conversion as before)
         const priceInEth = (defaultDenomination / 3500).toFixed(6);
-        
+     
         return {
           id: brand.id,
           title: brand.title,
