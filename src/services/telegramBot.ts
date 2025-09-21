@@ -288,6 +288,11 @@ const registerCommand = (
   });
 };
 
+// Helper function to escape Markdown special characters
+const escapeMarkdown = (text: string): string => {
+  return text.replace(/[_*[\]()~`>#+\-={}.!]/g, '\\$&');
+};
+
 // Send a message to a specific chat
 const sendMessage = (chatId: number | string, text: string, options: any = {}) => {
   return bot.sendMessage(chatId, text, { parse_mode: 'Markdown', ...options });
@@ -613,12 +618,18 @@ const initializeBot = () => {
         });
       }
       
-      // Format the response
-      let message = `🎁 *${brand.title || 'Brand Details'}*\n\n`;
+      // Format the response with escaped Markdown
+      const title = brand.title ? escapeMarkdown(brand.title) : 'Brand Details';
+      const description = brand.brandDescription ? escapeMarkdown(brand.brandDescription) : 'No description';
+      const categories = Array.isArray(brand.category) 
+        ? brand.category.map(cat => escapeMarkdown(cat)).join(', ') 
+        : 'N/A';
+      
+      let message = `🎁 *${title}*\n\n`;
       
       // Add basic info
-      message += `📝 *Description:* ${brand.brandDescription || 'No description'}\n`;
-      message += `🏷 *Categories:* ${Array.isArray(brand.category) ? brand.category.join(', ') : 'N/A'}\n`;
+      message += `📝 *Description:* ${description}\n`;
+      message += `🏷 *Categories:* ${categories}\n`;
       
       // Add pricing info if available
       if (brand.amountRestrictions?.denominations?.length) {
@@ -629,7 +640,7 @@ const initializeBot = () => {
       if (brand.termsAndConditions?.length) {
         message += `\n📜 *Terms & Conditions:*\n`;
         brand.termsAndConditions.slice(0, 3).forEach((term: string, index: number) => {
-          message += `${index + 1}. ${term}\n`;
+          message += `${index + 1}. ${escapeMarkdown(term)}\n`;
         });
       }
       
