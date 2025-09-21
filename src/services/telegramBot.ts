@@ -597,19 +597,9 @@ const initializeBot = () => {
   });
 
   // Fetch and send brand details for a specific ID
-  registerCommand('getbrand(?:\s+(\w+))?', async (chatId, match) => {
+  registerCommand('getbrand', async (chatId) => {
     try {
-      // Extract brand ID from command or use the default one
-      const brandId = match?.[1]?.trim() || '01J1W4D2KRHMJZKPAQWXCEMF4M';
-      
-      if (!brandId) {
-        return sendMessage(
-          chatId,
-          '❌ Please provide a Brand ID.\n\nExample: `/getbrand 01J1W4D2KRHMJZKPAQWXCEMF4M`',
-          { parse_mode: 'Markdown' }
-        );
-      }
-      console.log("asjncaclabjcnjklabcasj", brandId)
+      const brandId = '01J1W4D2KRHMJZKPAQWXCEMF4M';
       const loadingMsg = await bot.sendMessage(chatId, '🔍 Fetching brand details...');
       
       // Fetch brand details from the API with proper typing
