@@ -596,6 +596,67 @@ const initializeBot = () => {
     }
   });
 
+  // Fetch and send brand details for a specific ID
+  registerCommand('getbrand', async (chatId) => {
+    try {
+      const brandId = '01J1W4D2KRHMJZKPAQWXCEMF4M';
+      const loadingMsg = await bot.sendMessage(chatId, '🔍 Fetching brand details...');
+      
+      // Fetch brand details from the API with proper typing
+      const response = await axios.get<Brand>(`https://gift-card-store-backend.onrender.com/brand/${brandId}`);
+      const brand: Brand = response.data;
+      
+      if (!brand) {
+        return bot.editMessageText('❌ Brand not found.', {
+          chat_id: chatId,
+          message_id: loadingMsg.message_id
+        });
+      }
+      
+      // Format the response
+      let message = `🎁 *${brand.title || 'Brand Details'}*\n\n`;
+      
+      // Add basic info
+      message += `📝 *Description:* ${brand.brandDescription || 'No description'}\n`;
+      message += `🏷 *Categories:* ${Array.isArray(brand.category) ? brand.category.join(', ') : 'N/A'}\n`;
+      
+      // Add pricing info if available
+      if (brand.amountRestrictions?.denominations?.length) {
+        message += `💰 *Denominations:* $${brand.amountRestrictions.denominations.join(', $')}\n`;
+      }
+      
+      // Add terms if available
+      if (brand.termsAndConditions?.length) {
+        message += `\n📜 *Terms & Conditions:*\n`;
+        brand.termsAndConditions.slice(0, 3).forEach((term: string, index: number) => {
+          message += `${index + 1}. ${term}\n`;
+        });
+      }
+      
+      // Send the formatted message
+      await bot.editMessageText(message, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '🛒 Add to Cart',
+                callback_data: `add_to_cart_${brandId}`
+              }
+            ]
+          ]
+        }
+      });
+      
+    } catch (error: any) {
+      console.error('Error fetching brand details:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to fetch brand details';
+      await bot.sendMessage(chatId, `❌ Error: ${errorMessage}`);
+    }
+  });
+
   // Checkout command handler
   registerCommand('checkout', async (chatId: number) => {
     try {
