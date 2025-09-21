@@ -610,7 +610,7 @@ const initializeBot = () => {
       // Fetch brand details from the API with proper typing
       const response = await axios.get<Brand>(`https://gift-card-store-backend.onrender.com/brand/${brandId}`);
       const brand: Brand = response.data;
-      
+      console.log("brand", brand);
       if (!brand) {
         return bot.editMessageText('❌ Brand not found.', {
           chat_id: chatId,
