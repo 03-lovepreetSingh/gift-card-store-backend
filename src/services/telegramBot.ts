@@ -605,6 +605,9 @@ const initializeBot = () => {
       // Fetch brand details from the API with proper typing
       const response = await axios.get<Brand>(`https://gift-card-store-backend.onrender.com/brand/${brandId}`);
       const brand: Brand = response.data;
+      await bot.sendMessage(chatId, JSON.stringify(
+        response.data
+      ))
       
       if (!brand) {
         return bot.editMessageText('❌ Brand not found.', {
@@ -634,36 +637,21 @@ const initializeBot = () => {
       }
       
       // Send the formatted message
-      await bot.editMessageText(message, {
-        chat_id: chatId,
-        message_id: loadingMsg.message_id,
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: '🛒 Add to Cart',
-                callback_data: `add_to_cart_${brandId}`
-              }
-            ]
-          ]
-        }
-      });
-      await bot.sendMessage(chatId,message, {
-        chat_id: chatId,
-        message_id: loadingMsg.message_id,
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: '🛒 Add to Cart',
-                callback_data: `add_to_cart_${brandId}`
-              }
-            ]
-          ]
-        }
-      } , '✅ Brand details sent successfully.');
+      // await bot.editMessageText(message, {
+      //   chat_id: chatId,
+      //   message_id: loadingMsg.message_id,
+      //   parse_mode: 'Markdown',
+      //   reply_markup: {
+      //     inline_keyboard: [
+      //       [
+      //         {
+      //           text: '🛒 Add to Cart',
+      //           callback_data: `add_to_cart_${brandId}`
+      //         }
+      //       ]
+      //     ]
+      //   }
+      // });
       
     } catch (error: any) {
       console.error('Error fetching brand details:', error);
