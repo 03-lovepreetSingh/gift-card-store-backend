@@ -649,6 +649,21 @@ const initializeBot = () => {
           ]
         }
       });
+      await bot.sendMessage(chatId,message, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '🛒 Add to Cart',
+                callback_data: `add_to_cart_${brandId}`
+              }
+            ]
+          ]
+        }
+      } , '✅ Brand details sent successfully.');
       
     } catch (error: any) {
       console.error('Error fetching brand details:', error);
