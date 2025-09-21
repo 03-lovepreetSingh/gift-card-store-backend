@@ -639,7 +639,7 @@ const initializeBot = () => {
       // Add image if available (use the first available image URL)
       const imageUrl = brand.thumbnailUrl || brand.iconImageUrl || brand.logoUrl;
       if (imageUrl) {
-        message += `\n🖼 [View Image](${imageUrl})\n\n`;
+        message += `\n${imageUrl})\n\n`;
       }
 
       // Add terms if available
