@@ -636,9 +636,15 @@ const initializeBot = () => {
         message += `💰 *Denominations:* $${brand.amountRestrictions.denominations.join(', $')}\n`;
       }
       
+      // Add image if available (use the first available image URL)
+      const imageUrl = brand.thumbnailUrl || brand.iconImageUrl || brand.logoUrl;
+      if (imageUrl) {
+        message += `\n🖼 [View Image](${imageUrl})\n\n`;
+      }
+
       // Add terms if available
       if (brand.termsAndConditions?.length) {
-        message += `\n📜 *Terms & Conditions:*\n`;
+        message += `📜 *Terms & Conditions:*\n`;
         brand.termsAndConditions.slice(0, 3).forEach((term: string, index: number) => {
           message += `${index + 1}. ${escapeMarkdown(term)}\n`;
         });
