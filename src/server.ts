@@ -9,6 +9,8 @@ import { startCronJobs } from "./cron/job";
 import ordersRoutes from "./routes/orders";
 import telegramRoutes from "./routes/telegram";
 import paymentRoutes from "./routes/payments";
+import  { initializeBot } from './services/telegramBot';
+
 
 
 
@@ -36,6 +38,6 @@ app.use("/api/payments", paymentRoutes);
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
-
+ initializeBot();
   startCronJobs();
 });
