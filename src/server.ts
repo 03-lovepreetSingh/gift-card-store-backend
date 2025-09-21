@@ -9,7 +9,7 @@ import { startCronJobs } from "./cron/job";
 import ordersRoutes from "./routes/orders";
 import telegramRoutes from "./routes/telegram";
 import paymentRoutes from "./routes/payments";
-import { initializeBot } from "./services/telegramBot";
+import telegramBot from "./services/telegramBot";
 
 
 const app = express();

@@ -4,6 +4,31 @@ import { createPayment, getPaymentStatus } from './paymentService';
 import { getBrands, getBrandById } from '../controllers/brandControllers';
 import { Request, Response } from 'express';
 import axios from 'axios';
+import { 
+  transformApiDataToGiftCards, 
+  getUniqueCategories,
+  type GiftCard
+} from '../utils/giftCardUtils';
+
+dotenv.config();
+
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+
+if (!TELEGRAM_BOT_TOKEN) {
+  throw new Error('TELEGRAM_BOT_TOKEN is not defined in environment variables');
+}
+
+// Create bot instance
+const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+
+interface BrandMessage {
+  message_id: number;
+  chat?: {
+    id: number | string;
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
 
 interface Brand {
   id: string;
@@ -42,28 +67,13 @@ interface Brand {
   }>;
   canBalanceBeFetched: boolean;
   voucherExpiryInMonths: number | null;
-  variantDetails: any[]; // Update with proper type if variant structure is known
+  variantDetails: any[];
   discountPercentage: number | null;
 }
 
 interface BrandResponse extends Brand {
   // Add any additional fields from the API response if needed
 }
-import { 
-  transformApiDataToGiftCards, 
-  getUniqueCategories,
-  type GiftCard
-} from '../utils/giftCardUtils';
-dotenv.config();
-
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-
-if (!TELEGRAM_BOT_TOKEN) {
-  throw new Error('TELEGRAM_BOT_TOKEN is not defined in environment variables');
-}
-
-// Create a bot that uses 'polling' to fetch new updates
-const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
 // Store active commands and their handlers
 const commands: {[key: string]: (chatId: number, match?: RegExpExecArray | null) => void} = {};
@@ -103,21 +113,184 @@ const mockResponse = (chatId: number) => ({
   })
 });
 
+// Define a type for command handlers that can return various types
+interface CommandHandler {
+  (chatId: number, match?: RegExpExecArray | null): Promise<any> | any;
+}
+
+// Function to fetch and display brand details - MOVED UP BEFORE USAGE
+const fetchBrandDetails = async (chatId: number, brandId: string, messageId?: number) => {
+  try {
+    const loadingMsg: BrandMessage = messageId 
+      ? { message_id: messageId }
+      : await bot.sendMessage(chatId, '🔍 Fetching brand details...');
+
+    try {
+      // Fetch brand details from the API with type safety
+      const response = await axios.get<Brand>(`https://gift-card-store-backend.onrender.com/brand/${brandId}`);
+      const brand = response.data;
+
+      if (!brand) {
+        return bot.editMessageText(
+          '❌ Brand not found. Please check the brand ID and try again.',
+          { chat_id: chatId, message_id: loadingMsg.message_id }
+        );
+      }
+
+      // Format brand details with type safety
+      const defaultDenomination = brand.amountRestrictions?.denominations?.[0] || 0;
+      const priceInEth = (defaultDenomination / 3500).toFixed(6);
+      const categories = Array.isArray(brand.category) 
+        ? brand.category.join(', ')
+        : brand.category || 'General';
+      const tags = Array.isArray(brand.tags) ? brand.tags.join(', ') : '';
+      
+      // Build the message
+      let message = `🎁 *${brand.title || 'Unnamed Brand'}*\n\n`;
+      
+      // Add images if available
+      const imageUrl = brand.thumbnailUrl || brand.iconImageUrl || brand.logoUrl;
+      if (imageUrl) {
+        message += `🖼 [View Image](${imageUrl})\n\n`;
+      }
+
+      // Add description
+      if (brand.brandDescription) {
+        message += `📝 *Description:*\n${brand.brandDescription}\n\n`;
+      }
+
+      // Add pricing information
+      message += `💰 *Pricing:*\n`;
+      message += `• $${defaultDenomination.toFixed(2)} USD (${priceInEth} ETH)\n\n`;
+      
+      // Add categories and tags if available
+      if (categories) {
+        message += `🏷 *Categories:* ${categories}\n`;
+      }
+      if (tags) {
+        message += `🔖 *Tags:* ${tags}\n\n`;
+      }
+
+      // Add terms and conditions if available
+      if (brand.termsAndConditions?.length) {
+        message += `📜 *Terms & Conditions:*\n`;
+        brand.termsAndConditions.slice(0, 3).forEach((term, index) => {
+          message += `${index + 1}. ${term}\n`;
+        });
+        if (brand.termsAndConditions.length > 3) {
+          message += `_+ ${brand.termsAndConditions.length - 3} more terms_\n`;
+        }
+        message += '\n';
+      }
+
+      if (brand.tncUrl) {
+        message += `[📄 Full Terms & Conditions](${brand.tncUrl})\n\n`;
+      }
+
+      // Add usage instructions if available
+      const onlineInstructions = brand.usageInstructions?.ONLINE || 
+        brand.howToUseInstructions?.find((inst) => inst.retailMode === 'ONLINE')?.instructions || [];
+      
+      if (onlineInstructions.length > 0) {
+        message += `ℹ️ *How to use:*\n${onlineInstructions[0]}\n`;
+        if (onlineInstructions.length > 1) {
+          message += `_+ ${onlineInstructions.length - 1} more steps_\n`;
+        }
+      }
+
+      // Send the formatted message
+      await bot.editMessageText(message, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown',
+        disable_web_page_preview: true,
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '🛒 Add to Cart',
+                callback_data: `add_to_cart_${brandId}`
+              },
+              {
+                text: '🔙 Back to Brands',
+                callback_data: 'show_brands'
+              }
+            ]
+          ]
+        }
+      });
+    } catch (error: any) {
+      console.error('Error fetching brand details:', error);
+      let errorMessage = '❌ An error occurred while fetching brand details.';
+      
+      if (error.response) {
+        if (error.response.status === 404) {
+          errorMessage = '❌ Brand not found. Please check the brand ID and try again.';
+        } else {
+          errorMessage += `\n\n*Status Code:* ${error.response.status}`;
+          if (error.response.data?.message) {
+            errorMessage += `\n*Error:* ${error.response.data.message}`;
+          }
+        }
+      } else if (error.request) {
+        errorMessage += '\n\n*Error:* No response received from the server.';
+      } else {
+        errorMessage += `\n\n*Error:* ${error.message}`;
+      }
+      
+      if (messageId) {
+        await bot.editMessageText(errorMessage, {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'Markdown'
+        });
+      } else {
+        await bot.sendMessage(chatId, errorMessage, { parse_mode: 'Markdown' });
+      }
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+    console.error('Error in fetchBrandDetails:', errorMessage);
+    await bot.sendMessage(
+      chatId,
+      '❌ An error occurred while processing your request. Please try again.',
+      { parse_mode: 'Markdown' }
+    );
+  }
+};
+
 // Register a command handler
-const registerCommand = (command: string, handler: (chatId: number, match?: RegExpExecArray | null) => void) => {
+const registerCommand = (
+  command: string, 
+  handler: CommandHandler
+) => {
   commands[command] = handler;
   
   // Set up the listener for the command
   const regex = new RegExp(`^\/${command}(?:@[\w_]+)?(?:\s+(.*))?$`);
-  bot.onText(regex, (msg, match) => {
+  bot.onText(regex, async (msg, match) => {
     const chatId = msg.chat.id;
-    handler(chatId, match);
+    try {
+      // Handle the promise returned by the handler, but don't care about the result
+      await Promise.resolve(handler(chatId, match));
+    } catch (error) {
+      console.error(`Error in command handler for /${command}:`, error);
+      try {
+        await bot.sendMessage(
+          chatId,
+          '❌ An error occurred while processing your command. Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+      } catch (sendError) {
+        console.error('Failed to send error message:', sendError);
+      }
+    }
   });
 };
 
 // Send a message to a specific chat
-const sendMessage = (chatId: number | string, text: string, options?: any) => {
-  return bot.sendMessage(chatId, text, options);
+const sendMessage = (chatId: number | string, text: string, options: any = {}) => {
+  return bot.sendMessage(chatId, text, { parse_mode: 'Markdown', ...options });
 };
 
 // Initialize the bot with default commands
@@ -128,7 +301,7 @@ const initializeBot = () => {
     { command: 'help', description: 'Show help information' },
     { command: 'balance', description: 'Check your balance' },
     { command: 'orders', description: 'View your orders' },
-    { command: 'checkout', description: 'Pay  USDT for a gift card'},
+    { command: 'checkout', description: 'Pay USDT for a gift card'},
     { command: 'brands', description: 'List all available brands' },
     { command: 'brand', description: 'View brand details' },
   ]);
@@ -143,7 +316,7 @@ const initializeBot = () => {
       `/orders - View your orders\n` +
       `/brands - List all available brands\n` +
       `/brand [id] - View brand details\n` +
-      `/checkout - Pay  USDT for a gift card`;
+      `/checkout - Pay USDT for a gift card`;
     
     sendMessage(chatId, welcomeMessage, { parse_mode: 'Markdown' });
   });
@@ -163,7 +336,6 @@ const initializeBot = () => {
     
     sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
   });
-
 
   // Brands command handler
   registerCommand('brands', async (chatId) => {
@@ -370,223 +542,170 @@ const initializeBot = () => {
     }
   });
 
-  // Brand command handler
-  registerCommand('brand', async (chatId, match) => {
+  // Brand command handler - Step 1: Ask for brand ID
+  registerCommand('brand', async (chatId) => {
     try {
-      if (!match || !match[1]) {
-        return bot.sendMessage(
-          chatId, 
-          '❌ Please provide a brand ID.\n\n' +
-          'Example: `/brand 123`\n' +
-          'To find brand IDs, use the `/brands` command.',
-          { parse_mode: 'Markdown' }
-        );
-      }
-
-      const brandId = match[1].trim();
-      const loadingMsg = await bot.sendMessage(chatId, '🔍 Fetching brand details...');
-
-      try {
-        // Fetch brand details from the API with type safety
-        const response = await axios.get<Brand>(`https://gift-card-store-backend.onrender.com/brand/${brandId}`);
-        const brand = response.data;
-
-        if (!brand) {
-          return bot.editMessageText(
-            '❌ Brand not found. Please check the brand ID and try again.',
-            { chat_id: chatId, message_id: loadingMsg.message_id }
-          );
-        }
-
-        // Format brand details with type safety
-        const defaultDenomination = brand.amountRestrictions?.denominations?.[0] || 0;
-        const priceInEth = (defaultDenomination / 3500).toFixed(6);
-        const categories = Array.isArray(brand.category) 
-          ? brand.category.join(', ')
-          : brand.category || 'General';
-        const tags = Array.isArray(brand.tags) ? brand.tags.join(', ') : '';
-        
-        // Build the message
-        let message = `🎁 *${brand.title || 'Unnamed Brand'}*\n\n`;
-        
-        // Add images if available
-        const imageUrl = brand.thumbnailUrl || brand.iconImageUrl || brand.logoUrl;
-        if (imageUrl) {
-          message += `🖼 [View Image](${imageUrl})\n\n`;
-        }
-
-        // Add description
-        if (brand.brandDescription) {
-          message += `📝 *Description:*\n${brand.brandDescription}\n\n`;
-        }
-
-        // Add price information
-        message += `💰 *Price:* $${defaultDenomination.toFixed(2)}\n`;
-        message += `🪙 *In Crypto:* ${priceInEth} ETH (≈ $${defaultDenomination.toFixed(2)})\n\n`;
-
-        // Add categories and tags
-        message += `🏷 *Categories:* ${categories}\n`;
-        if (tags) {
-          message += `🏷 *Tags:* ${tags}\n`;
-        }
-        message += `\n`;
-
-        // Add terms and conditions if available
-        if (brand.termsAndConditions?.length > 0) {
-          const termsPreview = brand.termsAndConditions
-            .slice(0, 3) // Show first 3 terms
-            .map((term: string, index: number) => `${index + 1}. ${term}`)
-            .join('\n');
-          
-          message += `📜 *Terms & Conditions:*\n${termsPreview}`;
-          if (brand.termsAndConditions.length > 3) {
-            message += `\n_+ ${brand.termsAndConditions.length - 3} more terms_`;
-          }
-          message += '\n\n';
-        }
-        if (brand.tncUrl) {
-          message += `[📄 Full Terms & Conditions](${brand.tncUrl})\n\n`;
-        }
-
-        // Add usage instructions if available
-        const onlineInstructions = brand.usageInstructions?.ONLINE || 
-          brand.howToUseInstructions?.find((inst) => inst.retailMode === 'ONLINE')?.instructions || [];
-        
-        if (onlineInstructions.length > 0) {
-          message += `ℹ️ *How to use:*\n${onlineInstructions[0]}\n`;
-          if (onlineInstructions.length > 1) {
-            message += `_+ ${onlineInstructions.length - 1} more steps_\n`;
-          }
-        }
-
-        // Send the formatted message
-        await bot.editMessageText(message, {
-          chat_id: chatId,
-          message_id: loadingMsg.message_id,
+      // Send a message asking for the brand ID
+      const sentMessage = await bot.sendMessage(
+        chatId,
+        '🔍 *Please enter the Brand ID*\n\n' +
+        'You can find Brand IDs using the `/brands` command.\n\n' +
+        'Example: `123`',
+        {
           parse_mode: 'Markdown',
-          disable_web_page_preview: true,
           reply_markup: {
-            inline_keyboard: [
-              [
-                { 
-                  text: '🛒 Add to Cart',
-                  callback_data: `add_to_cart_${brandId}`
-                },
-                { 
-                  text: '🔙 Back to Brands',
-                  callback_data: 'show_brands'
-                }
-              ]
-            ]
+            force_reply: true
           }
-        });
+        }
+      );
 
-      } catch (error: any) {
-        console.error('Error fetching brand details:', error);
-        const errorMessage = error.response?.status === 404 
-          ? '❌ Brand not found. Please check the brand ID and try again.'
-          : '❌ Failed to fetch brand details. Please try again later.';
-        
-        await bot.editMessageText(errorMessage, {
-          chat_id: chatId,
-          message_id: loadingMsg.message_id
-        });
-      }
+      // Define reply listener function
+      const replyListener = async (msg: any) => {
+        if (msg.reply_to_message?.message_id === sentMessage.message_id) {
+          // Remove the listener
+          bot.removeListener('message', replyListener);
+          
+          const brandId = msg.text?.trim();
+          if (!brandId) {
+            await bot.sendMessage(chatId, '❌ Please provide a valid Brand ID.');
+            return;
+          }
+          
+          try {
+            // Show loading message and fetch brand details
+            const loadingMsg = await bot.sendMessage(chatId, '🔍 Fetching brand details...');
+            await fetchBrandDetails(chatId, brandId, loadingMsg.message_id);
+          } catch (error) {
+            console.error('Error in reply listener:', error);
+            await bot.sendMessage(chatId, '❌ An error occurred while processing your request.');
+          }
+        }
+      };
+      
+      // Add the listener
+      bot.on('message', replyListener);
+      
+      // Set timeout to remove listener after 5 minutes
+      setTimeout(() => {
+        bot.removeListener('message', replyListener);
+      }, 5 * 60 * 1000);
+      
     } catch (error) {
       console.error('Error in brand command:', error);
-      bot.sendMessage(
-        chatId,
-        '❌ An error occurred while processing your request. Please try again.',
-        { parse_mode: 'Markdown' }
-      );
+      await bot.sendMessage(chatId, '❌ An error occurred while processing your request.');
     }
   });
 
   // Checkout command handler
-  registerCommand('checkout', async (chatId) => {
+  registerCommand('checkout', async (chatId: number) => {
     try {
       // Send a loading message
       const loadingMessage = await sendMessage(chatId, '🔄 Creating payment link...');
       
       // Create a payment
       const paymentResponse = await createPayment(chatId, 1, 'USDT');
-      
+      let payment: any = paymentResponse.data;
+
       if (paymentResponse.status !== 'success' || !paymentResponse.data) {
         throw new Error(paymentResponse.error || 'Failed to create payment');
       }
       
-      const { data: payment } = paymentResponse;
-      
       // Edit the loading message with the payment link
-      const paymentMessage = `💳 *Payment Request*\n\n` +
-        `Amount: * USDT*\n` +
-        `Status: *Pending*\n\n` +
-        `[Click here to pay](${payment.invoice_url})`;
-      
-      await bot.editMessageText(paymentMessage, {
-        chat_id: chatId,
-        message_id: loadingMessage.message_id,
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '💳 Pay Now', url: payment.invoice_url }],
-            [{ text: '✅ Check Status', callback_data: `payment_status:${payment.order_id}` }]
-          ]
+      let paymentMessage = await bot.sendMessage(
+        chatId,
+        `💳 *Payment Request*\n\n` +
+          `🔹 *Amount:* ${payment.amount} ${payment.currency}\n` +
+          `🔹 *Status:* ${payment.status}\n\n` +
+          `Please send ${payment.amount} ${payment.currency} to the following address:\n` +
+          `\`${payment.paymentAddress}\`\n\n` +
+          `*Payment ID:* \`${payment.id}\`\n` +
+          `*Expires in:* 15 minutes\n\n` +
+          `Click the button below when you've sent the payment.`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '✅ I\'ve sent the payment',
+                  callback_data: `confirm_payment_${payment.id}`,
+                },
+              ],
+            ],
+          },
         }
-      });
-      
+      ) as any;
+
       // Set up a listener for payment status checks
-      bot.on('callback_query', async (callbackQuery) => {
+      const paymentListener = async (callbackQuery: any) => {
         if (!callbackQuery.data?.startsWith('payment_status:')) return;
         
         const orderId = callbackQuery.data.split(':')[1];
-        const payment = await getPaymentStatus(orderId);
+        const paymentStatus = await getPaymentStatus(orderId);
         
-        if (!payment) {
+        if (!paymentStatus) {
+          if (!payment) {
+            await bot.answerCallbackQuery(callbackQuery.id, {
+              text: 'Payment not found',
+              show_alert: true
+            });
+            return;
+          }
+          
+          let statusMessage = '';
+          const paymentStatus = payment.status as 'completed' | 'pending' | 'expired' | 'cancelled' | 'failed';
+          
+          switch (paymentStatus) {
+            case 'completed':
+              statusMessage = '✅ Payment completed! Your gift card has been sent to your account.';
+              break;
+            case 'pending':
+              statusMessage = '⏳ Payment is still pending. Please complete the payment.';
+              break;
+            case 'expired':
+              statusMessage = '❌ Payment link has expired. Please try again.';
+              break;
+            case 'cancelled':
+              statusMessage = '❌ Payment was cancelled. Please try again.';
+              break;
+            case 'failed':
+              statusMessage = '❌ Payment failed. Please try again.';
+              break;
+            default:
+              statusMessage = `ℹ️ Payment status: ${paymentStatus}`;
+          }
+          
           await bot.answerCallbackQuery(callbackQuery.id, {
-            text: 'Payment not found',
+            text: statusMessage,
             show_alert: true
           });
-          return;
         }
-        
-        let statusMessage = '';
-        
-        switch (payment.status) {
-          case 'completed':
-            statusMessage = '✅ Payment completed! Your gift card has been sent to your account.';
-            break;
-          case 'pending':
-            statusMessage = '⏳ Payment is still pending. Please complete the payment.';
-            break;
-          case 'expired':
-            statusMessage = '❌ Payment link has expired. Please try again.';
-            break;
-          case 'cancelled':
-            statusMessage = '❌ Payment was cancelled. Please try again.';
-            break;
-          default:
-            statusMessage = 'ℹ️ Payment status: ' + payment.status;
-        }
-        
-        await bot.answerCallbackQuery(callbackQuery.id, {
-          text: statusMessage,
-          show_alert: true
-        });
-      });
+      };
       
-    } catch (error: any) {
+      // Add the listener
+      bot.on('callback_query', paymentListener);
+      
+      // Remove listener after 15 minutes
+      setTimeout(() => {
+        bot.removeListener('callback_query', paymentListener);
+      }, 15 * 60 * 1000);
+      
+    } catch (error: unknown) {
       console.error('Error in checkout command:', error);
-      sendMessage(chatId, '❌ An error occurred while processing your request. Please try again later.');
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      await sendMessage(chatId, `❌ An error occurred: ${errorMessage}`);
     }
   });
 
-  // Error handling
-  bot.on('polling_error', (error) => {
+  // Set up error handling
+  bot.on('polling_error', (error: Error) => {
     console.error('Polling error:', error);
   });
 
   console.log('🤖 Telegram bot is running...');
 };
 
-export { bot, registerCommand, sendMessage, initializeBot };
+// Export the bot instance and related functions
+export { registerCommand, sendMessage, initializeBot };
+
+export default bot;
