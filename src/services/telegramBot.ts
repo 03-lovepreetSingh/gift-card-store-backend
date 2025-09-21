@@ -705,8 +705,7 @@ const initializeBot = () => {
   console.log('🤖 Telegram bot is running...');
 };
 
-// Auto-initialize the bot when the module is imported
-initializeBot();
+
 
 // Export the bot instance and related functions
 export { registerCommand, sendMessage, initializeBot };
