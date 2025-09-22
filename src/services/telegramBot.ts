@@ -3,6 +3,50 @@ import dotenv from 'dotenv';
 import { createPayment, getPaymentStatus } from './paymentService';
 import axios from 'axios';
 
+// Define interfaces for brand data
+interface AmountRestrictions {
+  minAmount: number;
+  maxAmount: number;
+  minOrderAmount?: number;
+  maxOrderAmount?: number;
+  minVoucherAmount?: number;
+  maxVoucherAmount?: number;
+  maxVouchersPerOrder?: number;
+  maxVouchersPerDenomination?: number | null;
+  maxDenominationsPerOrder?: number | null;
+  denominations: number[];
+}
+
+interface HowToUseInstruction {
+  retailMode: string;
+  retailModeName: string;
+  instructions: string[];
+}
+
+interface Brand {
+  id: string;
+  status: string;
+  title: string;
+  brandDescription?: string;
+  category: string[];
+  tags: string[];
+  denominationType: string;
+  cardType: string;
+  redemptionType: string;
+  amountRestrictions: AmountRestrictions;
+  iconImageUrl?: string;
+  thumbnailUrl?: string;
+  logoUrl?: string;
+  tncUrl?: string;
+  termsAndConditions?: string[];
+  usageInstructions?: Record<string, string[]>;
+  howToUseInstructions?: HowToUseInstruction[];
+  canBalanceBeFetched?: boolean;
+  voucherExpiryInMonths?: number;
+  variantDetails?: any[];
+  discountPercentage?: number;
+}
+
 dotenv.config();
 const API_BASE_URL = 'https://gift-card-store-backend-1.onrender.com';
 let currentPage = 1;
@@ -249,15 +293,144 @@ const initializeBot = () => {
     }
   });
   
-  // Update the setMyCommands to include the new /brands command
+  // Command to get brand details by ID
+  registerCommand('brand', async (chatId, match) => {
+    try {
+      const brandId = match?.[1]?.trim();
+      if (!brandId) {
+        await sendMessage(chatId, '❌ Please provide a brand ID. Usage: `/brand <id>`', {
+          parse_mode: 'Markdown'
+        });
+        return;
+      }
+
+      const loadingMessage = await sendMessage(chatId, '🔄 Fetching brand details...');
+      
+      try {
+        const response = await axios.get<Brand>(`${API_BASE_URL}/brand/${brandId}`);
+        const brand: Brand = response.data;
+        
+        if (!brand) {
+          await bot.editMessageText('❌ Brand not found.', {
+            chat_id: chatId,
+            message_id: loadingMessage.message_id,
+            parse_mode: 'Markdown'
+          });
+          return;
+        }
+
+        let message = `*${brand.title || 'Brand Details'}*\n\n`;
+        
+        // Basic Info
+        message += `🆔 *ID:* ${brand.id}\n`;
+        message += `🟢 *Status:* ${brand.status === 'ACTIVE' ? '✅ Available' : '⏳ Coming Soon'}\n\n`;
+        
+        // Denomination Info
+        if (brand.amountRestrictions) {
+          const { minAmount, maxAmount, denominations } = brand.amountRestrictions as AmountRestrictions;
+          message += `💰 *Price Range:* ₹${minAmount} - ₹${maxAmount}\n`;
+          
+          if (denominations?.length > 0) {
+            message += `📋 *Available Denominations:* ${denominations.map((d: number) => `₹${d}`).join(', ')}\n`;
+          }
+          message += '\n';
+        }
+        
+        // Validity
+        if (brand.voucherExpiryInMonths) {
+          message += `⏳ *Validity:* ${brand.voucherExpiryInMonths} months\n`;
+        }
+        
+        // Discount
+        if (brand.discountPercentage) {
+          message += `🏷️ *Discount:* ${brand.discountPercentage}% OFF\n`;
+        }
+        
+        // Description
+        if (brand.brandDescription) {
+          message += `\n📝 *Description:*\n${brand.brandDescription}\n`;
+        }
+        
+        // Terms and Conditions
+        if (brand.termsAndConditions?.length) {
+          message += '\n📜 *Terms & Conditions:*\n';
+          brand.termsAndConditions.forEach((term, index) => {
+            message += `${index + 1}. ${term}\n`;
+          });
+        }
+        
+        // How to Use
+        if (brand.howToUseInstructions?.length) {
+          message += '\nℹ️ *How to Use:*\n';
+          brand.howToUseInstructions.forEach((instruction: HowToUseInstruction) => {
+            message += `*${instruction.retailModeName || 'Usage'}:*\n`;
+            instruction.instructions.forEach((step, i) => {
+              message += `${i + 1}. ${step}\n`;
+            });
+          });
+        }
+        
+        // Create keyboard with action buttons
+        const keyboard = {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🛒 Buy Now', callback_data: `buy_${brand.id}` }],
+              [{ text: '🔙 Back to Brands', callback_data: 'back_to_brands' }]
+            ]
+          }
+        };
+        
+        // Send the detailed brand information
+        await bot.editMessageText(message, {
+          chat_id: chatId,
+          message_id: loadingMessage.message_id,
+          parse_mode: 'Markdown',
+          ...keyboard
+        });
+        
+      } catch (error: any) {
+        console.error('Error fetching brand details:', error);
+        const errorMessage = error.response?.data?.message || 'Failed to fetch brand details';
+        await bot.editMessageText(`❌ Error: ${errorMessage}`, {
+          chat_id: chatId,
+          message_id: loadingMessage.message_id,
+          parse_mode: 'Markdown'
+        });
+      }
+      
+    } catch (error) {
+      console.error('Error in brand command:', error);
+      sendMessage(chatId, '❌ An error occurred while processing your request.');
+    }
+  });
+
+  // Update the setMyCommands to include the new commands
   bot.setMyCommands([
     { command: 'start', description: 'Start the bot' },
     { command: 'help', description: 'Show help information' },
     { command: 'balance', description: 'Check your balance' },
     { command: 'orders', description: 'View your orders' },
     { command: 'checkout', description: 'Pay USDT for a gift card' },
-    { command: 'brands', description: 'Browse available gift card brands' }
+    { command: 'brands', description: 'Browse available gift card brands' },
+    { command: 'brand', description: 'Get details of a specific brand by ID' }
   ]);
+  
+  // Update the help message to include the new command
+  const helpMessage = `🤖 *Gift Card Store Bot Help*\n\n` +
+    `*Available Commands:*\n` +
+    `/start - Show welcome message\n` +
+    `/help - Show this help message\n` +
+    `/balance - Check your account balance\n` +
+    `/orders - View your recent orders\n` +
+    `/checkout - Pay 1 USDT for a gift card\n` +
+    `/brands - Browse available gift card brands\n` +
+    `/brand <id> - Get details of a specific brand\n\n` +
+    `Need more help? Contact support.`;
+  
+  // Update the help command handler
+  registerCommand('help', (chatId) => {
+    sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
+  });
   
 
   // Checkout command handler
