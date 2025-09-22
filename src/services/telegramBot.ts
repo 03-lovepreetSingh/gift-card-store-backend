@@ -1,9 +1,12 @@
 import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
 import { createPayment, getPaymentStatus } from './paymentService';
+import axios from 'axios';
 
 dotenv.config();
-
+const API_BASE_URL = 'https://gift-card-store-backend-1.onrender.com';
+let currentPage = 1;
+const ITEMS_PER_PAGE = 10;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 if (!TELEGRAM_BOT_TOKEN) {
@@ -65,11 +68,170 @@ const initializeBot = () => {
       `/help - Show this help message\n` +
       `/balance - Check your account balance\n` +
       `/orders - View your recent orders\n` +
-      `/checkout - Pay 1 USDT for a gift card\n\n` +
+      `/checkout - Pay 1 USDT for a gift card\n` +
+      `/brands - Browse available gift card brands\n\n` +
       `Need more help? Contact support.`;
     
     sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
   });
+  registerCommand('brands', async (chatId) => {
+    try {
+      const loadingMessage = await sendMessage(chatId, '🔄 Fetching available brands...');
+      
+      // Make the API call to get brands
+      console.log('Fetching brands from API...');
+      const response = await axios.get(`${API_BASE_URL}/brand/`);
+      console.log('API Response:', JSON.stringify(response.data, null, 2));
+      
+      const allBrands = Array.isArray(response.data) ? response.data : [];
+      const totalPages = Math.ceil(allBrands.length / ITEMS_PER_PAGE) || 1;
+      
+      // Reset page if it's out of bounds
+      if (currentPage > totalPages) {
+        currentPage = 1;
+      }
+  
+      const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
+      const paginatedBrands = allBrands.slice(startIdx, startIdx + ITEMS_PER_PAGE);
+  
+      let message = `🎁 *Available Gift Card Brands* (Page ${currentPage}/${totalPages || 1})\n\n`;
+      
+      if (paginatedBrands.length === 0) {
+        message += "No brands found. Please check back later.";
+      } else {
+        paginatedBrands.forEach((brand: any, index: number) => {
+          message += `*${startIdx + index + 1}.* ${brand.name || 'Unnamed Brand'}\n`;
+          if (brand.description) {
+            message += `   ${brand.description}\n`;
+          }
+          message += '\n';
+        });
+      }
+  
+      // Define keyboard button type for TypeScript
+      type KeyboardButton = {
+        text: string;
+        callback_data: string;
+      };
+
+      // Create keyboard with navigation buttons
+      const keyboard: {
+        reply_markup: {
+          inline_keyboard: KeyboardButton[][];
+        };
+      } = {
+        reply_markup: {
+          inline_keyboard: []
+        }
+      };
+  
+      // Add navigation buttons if needed
+      if (totalPages > 1) {
+        const navButtons: KeyboardButton[] = [];
+        if (currentPage > 1) {
+          navButtons.push({ text: '⬅️ Previous', callback_data: 'brands_prev' });
+        }
+        if (currentPage < totalPages) {
+          navButtons.push({ text: 'Next ➡️', callback_data: 'brands_next' });
+        }
+        if (navButtons.length > 0) {
+          keyboard.reply_markup.inline_keyboard.push(navButtons);
+        }
+      }
+  
+      // Add a refresh button
+      keyboard.reply_markup.inline_keyboard.push([
+        { text: '🔄 Refresh', callback_data: 'brands_refresh' }
+      ]);
+  
+      // Edit the loading message with the brands
+      await bot.editMessageText(message, {
+        chat_id: chatId,
+        message_id: loadingMessage.message_id,
+        parse_mode: 'Markdown',
+        ...keyboard
+      });
+  
+    } catch (error: any) {
+      console.error('Error fetching brands:', error);
+      let errorMessage = 'Failed to fetch brands. Please try again later.';
+      
+      if (error.response) {
+        errorMessage = `API Error: ${error.response.status} - ${error.response.data?.message || 'Unknown error'}`;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      console.error('Error details:', errorMessage);
+      
+      try {
+        await sendMessage(
+          chatId,
+          `❌ ${errorMessage}`,
+          { parse_mode: 'Markdown' }
+        );
+      } catch (sendError) {
+        console.error('Failed to send error message:', sendError);
+      }
+    }
+  });
+  
+  // Update the callback_query handler (add this inside initializeBot, after other handlers)
+  bot.on('callback_query', async (callbackQuery) => {
+    const chatId = callbackQuery.message?.chat.id;
+    const data = callbackQuery.data;
+  
+    if (!chatId || !data) return;
+  
+    try {
+      // Handle payment status callbacks
+      if (data.startsWith('payment_status:')) {
+        const orderId = data.split(':')[1];
+        const payment = await getPaymentStatus(orderId);
+        // ... existing payment status handling code ...
+        return;
+      }
+  
+      // Handle brands pagination
+      if (data.startsWith('brands_')) {
+        const action = data.split('_')[1];
+        
+        if (action === 'prev' && currentPage > 1) {
+          currentPage--;
+        } else if (action === 'next') {
+          currentPage++;
+        }
+        // For refresh, keep the same page
+  
+        // Acknowledge the callback
+        await bot.answerCallbackQuery(callbackQuery.id);
+        
+        // Show typing action
+        await bot.sendChatAction(chatId, 'typing');
+        
+        // Trigger the brands command again with the updated page
+        // @ts-ignore - We know the command exists
+        commands['brands'](chatId);
+      }
+    } catch (error) {
+      console.error('Error handling callback query:', error);
+      await bot.answerCallbackQuery(callbackQuery.id, {
+        text: '❌ An error occurred. Please try again.',
+        show_alert: true
+      });
+    }
+  });
+  
+  // Update the setMyCommands to include the new /brands command
+  bot.setMyCommands([
+    { command: 'start', description: 'Start the bot' },
+    { command: 'help', description: 'Show help information' },
+    { command: 'balance', description: 'Check your balance' },
+    { command: 'orders', description: 'View your orders' },
+    { command: 'checkout', description: 'Pay USDT for a gift card' },
+    { command: 'brands', description: 'Browse available gift card brands' }
+  ]);
+  
 
   // Checkout command handler
   registerCommand('checkout', async (chatId) => {
