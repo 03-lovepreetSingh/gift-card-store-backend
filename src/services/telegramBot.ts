@@ -83,7 +83,7 @@ const initializeBot = () => {
       const response = await axios.get(`${API_BASE_URL}/brand/`);
       console.log('API Response:', JSON.stringify(response.data.data, null, 2));
       
-      const allBrands = Array.isArray(response.data) ? response.data : [];
+      const allBrands = Array.isArray(response.data.data) ? response.data.data : [];
       const totalPages = Math.ceil(allBrands.length / ITEMS_PER_PAGE) || 1;
       
       // Reset page if it's out of bounds
