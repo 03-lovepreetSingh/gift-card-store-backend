@@ -297,6 +297,7 @@ const initializeBot = () => {
   registerCommand('brand', async (chatId, match) => {
     try {
       const brandId = match?.[1]?.trim();
+      console.log('Brand ID:', brandId);
       if (!brandId) {
         await sendMessage(chatId, '❌ Please provide a brand ID. Usage: `/brand <id>`', {
           parse_mode: 'Markdown'
