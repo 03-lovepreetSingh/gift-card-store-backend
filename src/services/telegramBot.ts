@@ -97,14 +97,41 @@ const initializeBot = () => {
       let message = `🎁 *Available Gift Card Brands* (Page ${currentPage}/${totalPages || 1})\n\n`;
       
       if (paginatedBrands.length === 0) {
-        message += "No brands found. Please check back later.";
+        message += "No brands found. Please check back later.\n";
       } else {
         paginatedBrands.forEach((brand: any, index: number) => {
-          message += `*${startIdx + index + 1}.* ${brand.name || 'Unnamed Brand'}\n`;
-          if (brand.description) {
-            message += `   ${brand.description}\n`;
+          // Add brand title
+          message += `*${startIdx + index + 1}. ${brand.title || 'Unnamed Brand'}*\n`;
+          
+          // Add brand status
+          if (brand.status) {
+            message += `   🟢 Status: ${brand.status === 'ACTIVE' ? 'Available' : 'Coming Soon'}\n`;
           }
-          message += '\n';
+          
+          // Add denominations if available
+          if (brand.amountRestrictions?.denominations?.length > 0) {
+            const min = brand.amountRestrictions.minVoucherAmount || Math.min(...brand.amountRestrictions.denominations);
+            const max = brand.amountRestrictions.maxVoucherAmount || Math.max(...brand.amountRestrictions.denominations);
+            message += `   💰 Denomination: ₹${min} - ₹${max}\n`;
+            
+            // Show all available denominations if there are only a few
+            if (brand.amountRestrictions.denominations.length <= 5) {
+              message += `   📋 Available: ${brand.amountRestrictions.denominations.map((d: number) => `₹${d}`).join(', ')}\n`;
+            }
+          }
+          
+          // Add validity if available
+          if (brand.voucherExpiryInMonths) {
+            message += `   ⏳ Validity: ${brand.voucherExpiryInMonths} months\n`;
+          }
+          
+          // Add discount if available
+          if (brand.discountPercentage) {
+            message += `   🏷️ Discount: ${brand.discountPercentage}% OFF\n`;
+          }
+          
+          // Add a separator between brands
+          message += '\n━━━━━━━━━━━━━━━━━━━━\n\n';
         });
       }
   
