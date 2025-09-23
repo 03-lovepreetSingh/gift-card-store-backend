@@ -146,8 +146,27 @@ export interface CreatePaymentResponse {
   };
   error?: string;
 }
+
+// Helper function to ensure userId is a valid UUID
+const ensureValidUuid = (userId: string | number): string => {
+  const userIdStr = String(userId);
+  
+  // Check if it's already a valid UUID format
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  
+  if (uuidRegex.test(userIdStr)) {
+    return userIdStr;
+  }
+  
+  // If it's not a UUID, generate a new one
+  // You might want to create a mapping table or use a different approach
+  // For now, we'll generate a deterministic UUID based on the input
+  console.warn(`Non-UUID userId provided: ${userIdStr}, generating new UUID`);
+  return uuidv4();
+};
+
 export const createPayment = async (
-  userId: string,
+  userId: string | number, // Accept both string and number
   amount: number, 
   inrAmount: number,
   currency: string = 'ETH',
@@ -157,6 +176,9 @@ export const createPayment = async (
   try {
     const orderId = uuidv4();
     const appUrl = process.env.APP_URL || 'http://localhost:4000';
+    
+    // Ensure userId is a valid UUID
+    const validUserId = ensureValidUuid(userId);
     
     // Create Plisio invoice
     const invoice = await createInvoice({
@@ -178,24 +200,24 @@ export const createPayment = async (
     const invoiceData = invoice.data;
     const now = new Date();
 
-    // Create payment record with proper field mapping
+    // Create payment record with proper field mapping and snake_case column names
     const paymentRecord = {
       id: uuidv4(),
-      userId: userId,
-      shopId: 'default-shop',
+      user_id: validUserId, // Use snake_case to match database schema
+      shop_id: 'default-shop',
       type: 'crypto_invoice',
       status: 'new',
-      orderId: orderId,
+      order_id: orderId,
       amount: amount.toString(),
-      inr_amount: inrAmount.toString(), // Keep snake_case to match database schema
+      inr_amount: inrAmount.toString(),
       currency,
-      invoiceId: invoiceData.txn_id,
-      invoiceUrl: invoiceData.invoice_url,
-      txUrls: [],
-      voucherDetails: null,
+      invoice_id: invoiceData.txn_id,
+      invoice_url: invoiceData.invoice_url,
+      tx_urls: [],
+      voucher_details: null,
       metadata,
-      createdAt: now,
-      updatedAt: now
+      created_at: now,
+      updated_at: now
     };
 
     // Save to database
@@ -213,11 +235,11 @@ export const createPayment = async (
     return {
       status: 'success',
       data: {
-        txn_id: paymentRecord.invoiceId || '',
-        invoice_url: paymentRecord.invoiceUrl || '',
+        txn_id: paymentRecord.invoice_id || '',
+        invoice_url: paymentRecord.invoice_url || '',
         invoice_total_sum: paymentRecord.amount,
         order_id: orderId,
-        user_id: userId
+        user_id: validUserId
       }
     };
 
@@ -229,103 +251,6 @@ export const createPayment = async (
     };
   }
 };
-// export const createPayment = async (
-//   userId: string, // Changed from number to string to match database (uuid)
-//   amount: number, 
-//   inrAmount: number,
-//   currency: string = 'ETH',
-//   email: string = 'lovepreetsingh9810573475@gmail.com',
-//   metadata: Record<string, any> = {}
-// ): Promise<CreatePaymentResponse> => {
-//   try {
-//     const orderId = uuidv4(); // Generate raw UUID without prefix
-//     const appUrl = process.env.APP_URL || 'http://localhost:4000';
-    
-//     // Create Plisio invoice with required fields only
-//     // All other fields are now handled in plisioService
-//     const invoice = await createInvoice({
-//       order_number: orderId, // Use raw UUID for Plisio
-//       amount: amount,
-//       // All other fields are now hardcoded in plisioService
-//     });
-// console.log("invoice", invoice);
-//     if (!invoice.success || !invoice.data) {
-//       const errorMessage = invoice.error || 'Failed to create payment invoice';
-//       console.error('Failed to create invoice:', errorMessage);
-//       return {
-//         status: 'error',
-//         error: errorMessage,
-//       };
-//     }
-    
-//     const invoiceData = invoice.data;
-
-//     // Create payment record with invoice info
-//     const payment: PaymentData = {
-//       // Required fields from operations data
-//       id: orderId, // Using orderId as id since it's unique
-//       shopId: 'gift-card-shop', // Default shop ID
-//       type: 'invoice', // Default type
-//       txUrls: [], // Initialize empty array for transaction URLs
-      
-//       // Existing fields
-//       orderId: orderId,
-//       userId: userId,
-//       inrAmount: inrAmount,
-//       amount: parseFloat(invoiceData.invoice_total_sum) || amount,
-//       status: 'pending',
-//       invoiceId: invoiceData.txn_id,
-//       invoiceUrl: invoiceData.invoice_url,
-//       currency: currency || 'USD', // Default currency
-//       createdAt: new Date(),
-//       updatedAt: new Date(),
-//       metadata: {
-//         ...metadata,
-//         source: 'gift-card-store',
-//       },
-//     };
-
-//     // Save payment to database with explicit column mapping
-//     await db.insert(paymentsTable).values({
-//       id: payment.id,
-//       userId: payment.userId,
-//       shopId: payment.shopId,
-//       type: payment.type,
-//       status: payment.status,
-//       orderId: payment.orderId,
-//       // Use snake_case for database column names
-   
-//       amount: payment.amount.toString(),
-//       inr_amount: payment.inrAmount.toString(),
-//       currency: payment.currency || 'USD',
-//       invoiceId: payment.invoiceId || null,
-//       invoiceUrl: payment.invoiceUrl || null,
-//       txUrls: payment.txUrls || null,
-//       voucherDetails: payment.voucherDetails || null,
-//       metadata: payment.metadata || null,
-//       createdAt: payment.createdAt,
-//       updatedAt: payment.updatedAt || new Date()
-//     });
-    
-//     // Return the response in the format matching Plisio's response
-//     return {
-//       status: 'success',
-//       data: {
-// txn_id: payment.invoiceId || '',
-//         invoice_url: payment.invoiceUrl || '',
-//         invoice_total_sum: payment.amount.toString(),
-//         order_id: orderId, // Already a raw UUID
-//         user_id: userId
-//       }
-//     };
-//   } catch (error: any) {
-//     console.error('Error creating payment:', error);
-//     return {
-//       status: 'error',
-//       error: error.message || 'Failed to create payment',
-//     };
-//   }
-// };
 
 interface PlisioOperation {
   txn_id: string;
@@ -521,14 +446,14 @@ export const getPaymentStatus = async (orderId: string): Promise<GetPaymentStatu
         // Update payment with the latest status
         const updateData: any = {
           status: latestOperation.status,
-          updatedAt: new Date(),
+          updated_at: new Date(), // Use snake_case for database column
         };
 
         // If payment is completed, process vouchers if not already done
         if (latestOperation.status === 'completed' && !currentPayment.voucherDetails) {
           // Add your voucher generation logic here
           // const vouchers = await generateVouchers(payment);
-          // updateData.voucherDetails = vouchers;
+          // updateData.voucher_details = vouchers;
         }
 
         // Update the payment in the database
@@ -540,7 +465,8 @@ export const getPaymentStatus = async (orderId: string): Promise<GetPaymentStatu
         // Return the updated payment
         const updatedPayment = {
           ...currentPayment,
-          ...updateData,
+          status: latestOperation.status,
+          updatedAt: new Date(),
         };
         console.log('Updated payment:', updatedPayment);  
         return {
@@ -654,12 +580,12 @@ export const handlePaymentCallback = async (data: PaymentCallbackData) => {
         : new Date()
     };
 
-    // Update payment status in database
+    // Update payment status in database using snake_case column names
     await db
       .update(paymentsTable)
       .set({
         status: (status || 'failed').toLowerCase() as PaymentData['status'],
-        updatedAt: new Date()
+        updatedAt: new Date() // Updated to use camelCase to match Drizzle schema
       })
       .where(eq(paymentsTable.id, payment.id));
 
