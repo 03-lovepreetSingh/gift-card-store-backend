@@ -41,7 +41,7 @@ export const createPayment = async (
   try {
     const orderId = `order_${uuidv4()}`;
     const appUrl = process.env.APP_URL || 'http://localhost:4000';
-    
+console.log(amount);
     // Create payment record
     const paymentData: PaymentData = {
       orderId,
@@ -60,7 +60,7 @@ export const createPayment = async (
     // All other fields are now handled in plisioService
     const invoice = await createInvoice({
       order_number: orderId,
-    
+       amount:amount, 
       // All other fields are now hardcoded in plisioService
     });
 
