@@ -42,6 +42,7 @@ export const payments = pgTable("payments", {
   status: varchar("status").notNull(),
   orderId: varchar("order_id").notNull().unique(),
   amount: numeric("amount", { precision: 18, scale: 8 }).notNull(),
+  inrAmount: numeric("inr_amount", { precision: 18, scale: 8 }).notNull(),
   currency: varchar("currency").default('USD').notNull(),
   invoiceId: varchar("invoice_id"),
   invoiceUrl: text("invoice_url"),

@@ -747,11 +747,12 @@ const initializeBot = () => {
         const loadingMessage = await sendMessage(chatId, '🔄 Creating payment link...');
         
         try {
+          const inrAmount = amount;
           // Convert INR to USD (assuming amount is in INR)
           const usdAmount = await convertCurrency(amount, 'INR', 'USD');
           
           // Create payment with the converted amount
-          const paymentResponse = await createPayment(chatId, usdAmount, 'USDT');
+          const paymentResponse = await createPayment(chatId, usdAmount, inrAmount.toString(), 'USDT');
           
           if (paymentResponse.status !== 'success' || !paymentResponse.data) {
             throw new Error(paymentResponse.error || 'Failed to create payment');

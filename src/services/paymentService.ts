@@ -14,6 +14,7 @@ interface DbPaymentRow {
   status: string;
   orderId: string;
   amount: string;
+  inrAmount: string;
   currency: string;
   invoiceId: string | null;
   invoiceUrl: string | null;
@@ -40,6 +41,7 @@ const mapDbPaymentToPaymentData = (row: DbPaymentRow): PaymentData => ({
   status: row.status,
   txUrls: row.txUrls || [],
   orderId: row.orderId,
+  inrAmount: parseFloat(row.inrAmount),
   amount: parseFloat(row.amount),
   invoiceId: row.invoiceId || undefined,
   invoiceUrl: row.invoiceUrl || undefined,
@@ -70,6 +72,7 @@ export interface PaymentData {
   
   // Additional fields used in the codebase
   orderId: string;
+  inrAmount: number;
   amount: number;
   invoiceId?: string;
   invoiceUrl?: string;
@@ -133,6 +136,7 @@ console.log(amount);
       // Existing fields
       orderId: orderId,
       userId: userId,
+      inrAmount: amount,
       amount: parseFloat(invoiceData.invoice_total_sum) || amount,
       status: 'pending',
       invoiceId: invoiceData.txn_id,
@@ -154,6 +158,7 @@ console.log(amount);
       type: payment.type,
       status: payment.status,
       orderId: payment.orderId,
+      inrAmount: payment.inrAmount.toString(),
       amount: payment.amount.toString(),
       currency: payment.currency || 'USD',
       invoiceId: payment.invoiceId || null,
