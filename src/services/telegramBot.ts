@@ -330,13 +330,8 @@ const initializeBot = () => {
                 return;
               } catch (error) {
                 console.error('Error sending brand image:', error);
-                // If image fails to send, fall back to text message
-                let message = caption;
-                
-                // Update the message with brand details
-                await bot.editMessageText(message, {
-                  chat_id: chatId,
-                  message_id: messageId,
+                // If image fails to send, send a new text message with the brand details
+                await bot.sendMessage(chatId, caption, {
                   parse_mode: 'Markdown',
                   ...keyboard
                 });
