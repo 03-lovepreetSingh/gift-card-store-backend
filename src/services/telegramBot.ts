@@ -3,6 +3,41 @@ import dotenv from 'dotenv';
 import { createPayment, getPaymentStatus } from './paymentService';
 import axios from 'axios';
 import { convertCurrency } from '../utils/currency';
+import { CallbackQuery, InlineKeyboardMarkup } from 'node-telegram-bot-api';
+import { db } from '../db';
+import { payments } from '../db/schema';
+import { eq } from 'drizzle-orm';
+
+// Interface for CoinGecko API response
+interface CoinGeckoResponse {
+  ethereum?: {
+    inr: number;
+  };
+}
+
+// Function to get current ETH to INR rate
+async function getEthToInrRate(): Promise<number> {
+  try {
+    const response = await axios.get<CoinGeckoResponse>('https://api.coingecko.com/api/v3/simple/price', {
+      params: {
+        ids: 'ethereum',
+        vs_currencies: 'inr',
+        precision: 2
+      }
+    });
+    
+    const rate = response.data.ethereum?.inr;
+    if (rate) {
+      return rate;
+    }
+    
+    console.warn('Could not fetch ETH to INR rate, using fallback rate');
+    return 250000; // Fallback rate (1 ETH = 250,000 INR)
+  } catch (error) {
+    console.error('Error fetching ETH to INR rate:', error);
+    return 250000; // Fallback rate in case of error
+  }
+}
 
 // Define interfaces for brand data
 interface AmountRestrictions {
@@ -361,12 +396,22 @@ const initializeBot = () => {
           try {
             // Get user details from the message
             const user = callbackQuery.from;
-            const amountUsd = payment.amount || 0;
+            const amountEth = typeof payment.amount === 'string' 
+              ? parseFloat(payment.amount) 
+              : typeof payment.amount === 'number' 
+                ? payment.amount 
+                : 0;
             
-            // Convert USD to INR (assuming 1 USD = 83.5 INR - you might want to get this from an API)
-            const usdToInrRate = 83.5; // TODO: Consider getting this from an exchange rate API
-            const amountInr = Math.round(amountUsd * usdToInrRate);
-            console.log("Amount in INR:",amountInr)
+            if (isNaN(amountEth)) {
+              throw new Error('Invalid payment amount');
+            }
+            
+            // Get current ETH to INR rate and convert
+            const ethToInrRate = await getEthToInrRate();
+            const amountInr = Math.round(amountEth * ethToInrRate);
+            
+            console.log(`Converting ${amountEth} ETH to INR at rate: 1 ETH = ${ethToInrRate} INR`);
+            console.log(`Amount in INR: ${amountInr}`);
             // Prepare the order data according to the expected format
             const orderData = {
               productId: userSessions[chatId]?.currentBrandId || '',
