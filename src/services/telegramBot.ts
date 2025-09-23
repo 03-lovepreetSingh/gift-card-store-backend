@@ -462,12 +462,17 @@ const initializeBot = () => {
         // @ts-ignore - We know the command exists
         commands['brands'](chatId);
       }
-    } catch (error) {
-      console.error('Error handling callback query:', error);
-      await bot.answerCallbackQuery(callbackQuery.id, {
-        text: '❌ An error occurred. Please try again.',
-        show_alert: true
-      });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Error handling callback query:', errorMessage);
+      try {
+        await bot.answerCallbackQuery(callbackQuery.id, {
+          text: '❌ An error occurred. Please try again.',
+          show_alert: true
+        });
+      } catch (err) {
+        console.error('Failed to send error message:', err);
+      }
     }
   });
   
@@ -550,8 +555,9 @@ const initializeBot = () => {
             parse_mode: 'Markdown',
             ...keyboard
           });
-        } catch (editError) {
-          console.log('Could not edit message, sending new one:', editError.message);
+        } catch (editError: unknown) {
+          const errorMessage = editError instanceof Error ? editError.message : 'Unknown error';
+          console.log('Could not edit message, sending new one:', errorMessage);
           // If editing fails (e.g., it's a photo message), send a new message
           await bot.sendMessage(chatId, messageText, {
             parse_mode: 'Markdown',
@@ -716,7 +722,7 @@ const initializeBot = () => {
             reply_markup: {
               inline_keyboard: [
                 [{ text: '💳 Pay Now', url: payment.invoice_url }],
-                [{ text: '✅ Check Status', callback_data: `payment_status:${payment.order_id}` }]
+                [{ text: '✅ Check Status', callback_data: `payment_status:${payment.txn_id}` }]
               ]
             }
           });
@@ -729,8 +735,9 @@ const initializeBot = () => {
               message_id: loadingMessage.message_id,
               parse_mode: 'Markdown'
             });
-          } catch (editError) {
-            console.error('Failed to update error message:', editError);
+          } catch (editError: unknown) {
+            const errorMessage = editError instanceof Error ? editError.message : 'Unknown error';
+            console.error('Failed to update error message:', errorMessage);
             await sendMessage(chatId, '❌ Error creating payment. Please try again.', { parse_mode: 'Markdown' });
           }
           return;
@@ -756,53 +763,219 @@ const initializeBot = () => {
     const orderId = callbackQuery.data.split(':')[1];
     
     try {
+      // Show typing indicator
+      await bot.sendChatAction(chatId, 'typing');
+      
       const paymentResponse = await getPaymentStatus(orderId);
       
-      if (paymentResponse.status !== 'success' || !paymentResponse.data) {
+      if (!paymentResponse.success || !paymentResponse.data) {
         throw new Error(paymentResponse.error || 'Failed to get payment status');
       }
       
       const payment = paymentResponse.data;
+      const paymentStatus = (payment.status || 'pending').toLowerCase();
+      
+      // Handle completed or mismatched payments by creating an order
+      if (paymentStatus === 'completed' || paymentStatus === 'completed_' || paymentStatus === 'mismatch') {
+        try {
+          // Get user details from the message
+          const user = callbackQuery.from;
+          const amount = payment.amount || 0;
+          
+          // Prepare the order data
+          const orderData = {
+            productId: userSessions[chatId]?.currentBrandId || '',
+            referenceId: orderId, // Use the payment order ID as reference
+            amount: amount,
+            denominationDetails: [
+              {
+                denomination: amount,
+                quantity: 1
+              }
+            ],
+            customerDetails: {
+              name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Telegram User',
+              phoneNumber: user.id.toString(),
+              email: `${user.username || user.id}@telegram.org`
+            },
+            recipientDetails: {
+              name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Telegram User',
+              phoneNumber: user.id.toString()
+            }
+          };
+
+          // Make the POST request to create the order
+          const response = await axios.post<{
+            id: string;
+            referenceId: string;
+            status: string;
+            vouchers: Array<{
+              id: string;
+              cardType: string;
+              cardPin: string;
+              cardNumber: string;
+              validTill: string;
+              amount: number;
+            }>;
+            failureReason: string | null;
+          }>(
+            'https://gift-card-store-backend-1.onrender.com/order',
+            orderData,
+            {
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+
+          // If order creation was successful, update the payment status and show voucher details
+          if (response.data && response.data.status === 'success' && response.data.vouchers && response.data.vouchers.length > 0) {
+            payment.status = 'completed';
+            payment.updatedAt = new Date();
+            
+            // Store voucher details in the payment object
+            payment.voucherDetails = response.data.vouchers;
+            
+            // Send voucher details to the user
+            let voucherMessage = '🎉 *Your Voucher Details* 🎉\n\n';
+            
+            response.data.vouchers.forEach((voucher, index) => {
+              voucherMessage += `*Voucher ${index + 1}:*\n`;
+              voucherMessage += `🔹 *Card Number:* \`${voucher.cardNumber || 'N/A'}\`\n`;
+              voucherMessage += `🔹 *PIN:* \`${voucher.cardPin || 'N/A'}\`\n`;
+              voucherMessage += `🔹 *Amount:* ₹${voucher.amount || '0'}\n`;
+              voucherMessage += `🔹 *Valid Till:* ${voucher.validTill || 'N/A'}\n`;
+              voucherMessage += `🔹 *Type:* ${voucher.cardType || 'N/A'}\n\n`;
+            });
+            
+            voucherMessage += '💡 *Important:* Keep this information safe and do not share it with anyone.';
+            
+            // Send the voucher details in a separate message
+            await bot.sendMessage(chatId, voucherMessage, {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '✅ I have saved my voucher', callback_data: 'voucher_saved' }],
+                  [{ text: '📞 Need help? Contact support', url: 'https://t.me/your_support_username' }]
+                ]
+              }
+            });
+            
+            // In a real app, save the updated status and voucher details to your database
+          }
+        } catch (orderError) {
+          console.error('Error creating order:', orderError);
+          // Continue to show payment status even if order creation fails
+        }
+      }
       
       let statusText = '';
-      switch (payment.status) {
+      let statusEmoji = '';
+      let additionalMessage = '';
+      
+      // Map Plisio statuses to user-friendly messages
+      switch (paymentStatus) {
         case 'completed':
-          statusText = '✅ *Payment Successful!*';
+        case 'completed_':
+          statusText = 'Payment Successful!';
+          statusEmoji = '✅';
+          additionalMessage = '✅ Your order has been processed successfully!';
+          break;
+        case 'mismatch':
+          statusText = 'Payment amount mismatch';
+          statusEmoji = '⚠️';
+          additionalMessage = '⚠️ We detected a payment amount mismatch. Please contact support with your payment details.';
           break;
         case 'pending':
-          statusText = '⏳ *Payment Pending*';
+        case 'new':
+          statusText = 'Waiting for confirmation';
+          statusEmoji = '⏳';
+          additionalMessage = '⏳ Please wait while we confirm your payment. This may take a few minutes.';
           break;
         case 'failed':
-          statusText = '❌ *Payment Failed*';
+        case 'error':
+          statusText = 'Payment Failed';
+          statusEmoji = '❌';
+          additionalMessage = '❌ Your payment failed. Please try again or contact support.';
           break;
         case 'expired':
-          statusText = '⌛ *Payment Expired*';
+          statusText = 'Payment Expired';
+          statusEmoji = '⌛';
+          additionalMessage = '⌛ Your payment session has expired. Please initiate a new payment.';
           break;
         case 'cancelled':
-          statusText = '❌ *Payment Cancelled*';
+          statusText = 'Payment Cancelled';
+          statusEmoji = '❌';
+          additionalMessage = '❌ Your payment was cancelled. Please try again if you wish to complete your purchase.';
           break;
         default:
-          statusText = `*Status: ${payment.status}*`;
+          statusText = payment.status;
+          statusEmoji = 'ℹ️';
+          additionalMessage = 'Please contact support for assistance with your payment.';
       }
       
       const message = `💳 *Payment Status*\n\n` +
-        `Order ID: *${payment.orderId}*\n` +
-        `Amount: *${payment.amount} USDT*\n` +
-        `${statusText}\n` +
-        (payment.status === 'completed' ? '\nYour voucher will be delivered shortly!' : '');
+        `Order ID: *${payment.orderId || orderId}*\n` +
+        `Amount: *${payment.amount || 'N/A'} USDT*\n` +
+        `Status: ${statusEmoji} *${statusText}*\n\n${additionalMessage}`;
       
+      // Prepare reply markup based on status
+      const replyMarkup = {
+        inline_keyboard: [
+          [{ text: '🔄 Refresh Status', callback_data: `payment_status:${orderId}` }],
+          [{ text: '📞 Contact Support', url: 'https://t.me/your_support_username' }]
+        ]
+      };
+      
+      // Add voucher details button if payment is completed
+      if ((paymentStatus === 'completed' || paymentStatus === 'completed_') && payment.voucherDetails) {
+        replyMarkup.inline_keyboard.unshift([
+          { text: '📝 View Voucher', callback_data: `view_voucher:${orderId}` }
+        ]);
+      }
+      
+      // Update the message with the payment status
       await bot.editMessageText(message, {
         chat_id: chatId,
         message_id: callbackQuery.message.message_id,
-        parse_mode: 'Markdown'
+        parse_mode: 'Markdown',
+        reply_markup: replyMarkup
       });
+      
+      // Acknowledge the callback
+      await bot.answerCallbackQuery(callbackQuery.id);
       
     } catch (error) {
       console.error('Error checking payment status:', error);
-      await bot.answerCallbackQuery(callbackQuery.id, {
-        text: '❌ Failed to get payment status. Please try again.',
-        show_alert: true
-      });
+      
+      // Try to send an error message
+      try {
+        await bot.answerCallbackQuery(callbackQuery.id, {
+          text: '❌ Failed to get payment status. Please try again.',
+          show_alert: true
+        });
+        
+        // Update the message with an error
+        await bot.editMessageText(
+          '❌ *Error*\n\n' +
+          'We encountered an error while checking your payment status.\n' +
+          'Please try again in a few moments.',
+          {
+            chat_id: chatId,
+            message_id: callbackQuery.message.message_id,
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔄 Try Again', callback_data: `payment_status:${orderId}` }],
+                [{ text: '📞 Contact Support', url: 'https://t.me/your_support_username' }]
+              ]
+            }
+          }
+        );
+      } catch (editError: unknown) {
+        const errorMessage = editError instanceof Error ? editError.message : 'Unknown error';
+        console.error('Failed to update error message:', errorMessage);
+      }
     }
   });
 
