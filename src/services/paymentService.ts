@@ -200,24 +200,24 @@ export const createPayment = async (
     const invoiceData = invoice.data;
     const now = new Date();
 
-    // Create payment record with proper field mapping and snake_case column names
+    // Create payment record with camelCase property names to match Drizzle schema
     const paymentRecord = {
       id: uuidv4(),
-      user_id: userId, // Use snake_case to match database schema
-      shop_id: 'default-shop',
+      userId: validUserId, // Use the validated UUID
+      shopId: 'default-shop',
       type: 'crypto_invoice',
       status: 'new',
-      order_id: orderId,
+      orderId: orderId,
       amount: amount.toString(),
       inr_amount: inrAmount.toString(),
       currency,
-      invoice_id: invoiceData.txn_id,
-      invoice_url: invoiceData.invoice_url,
-      tx_urls: [],
-      voucher_details: null,
+      invoiceId: invoiceData.txn_id,
+      invoiceUrl: invoiceData.invoice_url,
+      txUrls: [],
+      voucherDetails: null,
       metadata,
-      created_at: now,
-      updated_at: now
+      createdAt: now,
+      updatedAt: now
     };
 
     // Save to database

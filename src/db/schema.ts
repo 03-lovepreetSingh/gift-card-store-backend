@@ -37,7 +37,7 @@ export const vouchers = pgTable("vouchers", {
 // Payments table - Fixed inconsistencies
 export const payments = pgTable("payments", {
   id: uuid("id").primaryKey().defaultRandom(), // Changed from varchar to uuid
-  userId: varchar("user_id").notNull(),
+  userId: varchar("user_id"),
   shopId: varchar("shop_id").notNull(),
   type: varchar("type").notNull(),
   status: varchar("status").notNull(),
