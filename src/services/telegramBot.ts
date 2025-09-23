@@ -66,6 +66,16 @@ type KeyboardButton = {
   callback_data: string;
 };
 
+// Define user session interface
+interface UserSession {
+  currentBrandId?: string;
+  awaitingAmount?: boolean;
+  // Add other session properties as needed
+}
+
+// Store user sessions
+const userSessions: {[key: number]: UserSession} = {};
+
 // Store active commands and their handlers
 const commands: {[key: string]: (chatId: number, match?: RegExpExecArray | null) => void} = {};
 
@@ -161,10 +171,7 @@ const initializeBot = () => {
         const brandButtons: KeyboardButton[][] = [];
         
         paginatedBrands.forEach((brand: Brand, index: number) => {
-          const brandNumber = startIdx + index + 1;
-          // Add just the brand title and a view button
-          message += `*${brandNumber}. ${brand.title || 'Unnamed Brand'}*`;
-          
+       
           // Add a button for each brand with view action
           brandButtons.push([
             {
@@ -173,8 +180,8 @@ const initializeBot = () => {
             }
           ]);
           
-          // Add a separator between brands
-          message += '\n━━━━━━━━━━━━━━━━━━━━\n\n';
+   
+      
         });
         
         // Add the brand buttons to the message options
@@ -382,119 +389,7 @@ const initializeBot = () => {
     }
   });
   
-  // Command to get brand details by ID
-  registerCommand('brand', async (chatId, match) => {
-    try {
-      console.log('Match:', match);
-      const brandId = match?.[1]?.trim();
-      console.log('Brand ID:', brandId);
-      
-      if (!brandId) {
-        await sendMessage(chatId, '❌ Please provide a brand ID. Usage: `/brand <id>`', {
-          parse_mode: 'Markdown'
-        });
-        return;
-      }
-
-      const loadingMessage = await sendMessage(chatId, '🔄 Fetching brand details...');
-      
-      try {
-        const response = await axios.get<Brand>(`${API_BASE_URL}/brand/${brandId}`);
-        const brand: Brand = response.data;
-        
-        if (!brand) {
-          await bot.editMessageText('❌ Brand not found.', {
-            chat_id: chatId,
-            message_id: loadingMessage.message_id,
-            parse_mode: 'Markdown'
-          });
-          return;
-        }
-
-        let message = `*${brand.title || 'Brand Details'}*\n\n`;
-        
-        // Basic Info
-        message += `🆔 *ID:* ${brand.id}\n`;
-        message += `🟢 *Status:* ${brand.status === 'ACTIVE' ? '✅ Available' : '⏳ Coming Soon'}\n\n`;
-        
-        // Denomination Info
-        if (brand.amountRestrictions) {
-          const { minAmount, maxAmount, denominations } = brand.amountRestrictions as AmountRestrictions;
-          message += `💰 *Price Range:* ₹${minAmount} - ₹${maxAmount}\n`;
-          
-          if (denominations?.length > 0) {
-            message += `📋 *Available Denominations:* ${denominations.map((d: number) => `₹${d}`).join(', ')}\n`;
-          }
-          message += '\n';
-        }
-        
-        // Validity
-        if (brand.voucherExpiryInMonths) {
-          message += `⏳ *Validity:* ${brand.voucherExpiryInMonths} months\n`;
-        }
-        
-        // Discount
-        if (brand.discountPercentage) {
-          message += `🏷️ *Discount:* ${brand.discountPercentage}% OFF\n`;
-        }
-        
-        // Description
-        if (brand.brandDescription) {
-          message += `\n📝 *Description:*\n${brand.brandDescription}\n`;
-        }
-        
-        // Terms and Conditions
-        if (brand.termsAndConditions?.length) {
-          message += '\n📜 *Terms & Conditions:*\n';
-          brand.termsAndConditions.forEach((term, index) => {
-            message += `${index + 1}. ${term}\n`;
-          });
-        }
-        
-        // How to Use
-        if (brand.howToUseInstructions?.length) {
-          message += '\nℹ️ *How to Use:*\n';
-          brand.howToUseInstructions.forEach((instruction: HowToUseInstruction) => {
-            message += `*${instruction.retailModeName || 'Usage'}:*\n`;
-            instruction.instructions.forEach((step, i) => {
-              message += `${i + 1}. ${step}\n`;
-            });
-          });
-        }
-        
-        // Create keyboard with action buttons
-        const keyboard = {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🛒 Buy Now', callback_data: `buy_${brand.id}` }],
-              [{ text: '🔙 Back to Brands', callback_data: 'back_to_brands' }]
-            ]
-          }
-        };
-        
-        // Send the detailed brand information
-        await bot.editMessageText(message, {
-          chat_id: chatId,
-          message_id: loadingMessage.message_id,
-          parse_mode: 'Markdown',
-          ...keyboard
-        });
-        
-      } catch (error: any) {
-        console.error('Error fetching brand details:', error);
-        const errorMessage = error.response?.data?.message || 'Failed to fetch brand details';
-        await bot.editMessageText(`❌ Error: ${errorMessage}`, {
-          chat_id: chatId,
-          message_id: loadingMessage.message_id,
-          parse_mode: 'Markdown'
-        });
-      }
-      
-    } catch (error) {
-      console.error('Error in brand command:', error);
-      sendMessage(chatId, '❌ An error occurred while processing your request.');
-    }
-  });
+ 
 
   // Update the setMyCommands to include the new commands
   bot.setMyCommands([
@@ -525,82 +420,273 @@ const initializeBot = () => {
   });
   
 
-  // Checkout command handler
-  registerCommand('checkout', async (chatId) => {
-    try {
-      // Send a loading message
-      const loadingMessage = await sendMessage(chatId, '🔄 Creating payment link...');
+  // Handle buy button click
+  bot.on('callback_query', async (callbackQuery) => {
+    if (!callbackQuery.data || !callbackQuery.message) return;
+    
+    const chatId = callbackQuery.message.chat.id;
+    const messageId = callbackQuery.message.message_id;
+    const data = callbackQuery.data;
+
+    // Handle buy button click
+    if (data.startsWith('buy_')) {
+      const brandId = data.split('_')[1];
       
-      // Create a payment
-      const paymentResponse = await createPayment(chatId, 1, 'USDT');
-      
-      if (paymentResponse.status !== 'success' || !paymentResponse.data) {
-        throw new Error(paymentResponse.error || 'Failed to create payment');
-      }
-      
-      const { data: payment } = paymentResponse;
-      
-      // Edit the loading message with the payment link
-      const paymentMessage = `💳 *Payment Request*\n\n` +
-        `Amount: * USDT*\n` +
-        `Status: *Pending*\n\n` +
-        `[Click here to pay](${payment.invoice_url})`;
-      
-      await bot.editMessageText(paymentMessage, {
-        chat_id: chatId,
-        message_id: loadingMessage.message_id,
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '💳 Pay Now', url: payment.invoice_url }],
-            [{ text: '✅ Check Status', callback_data: `payment_status:${payment.order_id}` }]
-          ]
+      try {
+        // Store the brand ID in the user's session
+        userSessions[chatId] = {
+          ...userSessions[chatId],
+          currentBrandId: brandId,
+          awaitingAmount: true
+        };
+        
+        // Get brand details to show amount range
+        const response = await axios.get<Brand>(`${API_BASE_URL}/brand/${brandId}`);
+        const brand = response.data;
+        
+        if (!brand || !brand.amountRestrictions) {
+          throw new Error('Could not retrieve brand details');
         }
-      });
+        
+        const { minAmount, maxAmount } = brand.amountRestrictions;
+        
+        // Ask user to enter amount
+        await bot.editMessageText(
+          `💳 *Enter Amount*\n\n` +
+          `Please enter the amount for ${brand.title} (between ₹${minAmount} and ₹${maxAmount}):`,
+          {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '❌ Cancel', callback_data: 'cancel_amount' }]
+              ]
+            }
+          }
+        );
+        
+      } catch (error) {
+        console.error('Error in buy flow:', error);
+        await bot.editMessageText('❌ Failed to start purchase. Please try again.', {
+          chat_id: chatId,
+          message_id: messageId
+        });
+      }
+      return;
+    }
+    
+    // Handle amount input (text message)
+    if (userSessions[chatId]?.awaitingAmount) {
+      const amount = parseFloat(callbackQuery.data);
+      const brandId = userSessions[chatId].currentBrandId;
       
-      // Set up a listener for payment status checks
-      bot.on('callback_query', async (callbackQuery) => {
-        if (!callbackQuery.data?.startsWith('payment_status:')) return;
+      try {
+        // Get brand details to validate amount
+        const response = await axios.get<Brand>(`${API_BASE_URL}/brand/${brandId}`);
+        const brand = response.data;
         
-        const orderId = callbackQuery.data.split(':')[1];
-        const payment = await getPaymentStatus(orderId);
+        if (!brand || !brand.amountRestrictions) {
+          throw new Error('Could not retrieve brand details');
+        }
         
-        if (!payment) {
-          await bot.answerCallbackQuery(callbackQuery.id, {
-            text: 'Payment not found',
-            show_alert: true
-          });
+        const { minAmount, maxAmount } = brand.amountRestrictions;
+        
+        if (isNaN(amount) || amount < minAmount || amount > maxAmount) {
+          await bot.sendMessage(
+            chatId,
+            `❌ Invalid amount. Please enter a value between ₹${minAmount} and ₹${maxAmount}.`,
+            { parse_mode: 'Markdown' }
+          );
           return;
         }
         
-        let statusMessage = '';
+        // Clear the awaiting state
+        userSessions[chatId].awaitingAmount = false;
         
-        switch (payment.status) {
-          case 'completed':
-            statusMessage = '✅ Payment completed! Your gift card has been sent to your account.';
-            break;
-          case 'pending':
-            statusMessage = '⏳ Payment is still pending. Please complete the payment.';
-            break;
-          case 'expired':
-            statusMessage = '❌ Payment link has expired. Please try again.';
-            break;
-          case 'cancelled':
-            statusMessage = '❌ Payment was cancelled. Please try again.';
-            break;
-          default:
-            statusMessage = 'ℹ️ Payment status: ' + payment.status;
+        // Create payment with the entered amount
+        const loadingMessage = await sendMessage(chatId, '🔄 Creating payment link...');
+        const paymentResponse = await createPayment(chatId, amount, 'USDT');
+        
+        if (paymentResponse.status !== 'success' || !paymentResponse.data) {
+          throw new Error(paymentResponse.error || 'Failed to create payment');
         }
         
-        await bot.answerCallbackQuery(callbackQuery.id, {
-          text: statusMessage,
-          show_alert: true
+        const { data: payment } = paymentResponse;
+        
+        // Show payment link
+        const paymentMessage = `💳 *Payment Request*\n\n` +
+          `Brand: *${brand.title}*\n` +
+          `Amount: *${amount} USDT*\n` +
+          `Status: *Pending*\n\n` +
+          `[Click here to pay](${payment.invoice_url})`;
+        
+        await bot.editMessageText(paymentMessage, {
+          chat_id: chatId,
+          message_id: loadingMessage.message_id,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '💳 Pay Now', url: payment.invoice_url }],
+              [{ text: '✅ Check Status', callback_data: `payment_status:${payment.order_id}` }]
+            ]
+          }
         });
+        
+      } catch (error) {
+        console.error('Error in payment flow:', error);
+        await bot.sendMessage(
+          chatId,
+          '❌ An error occurred while processing your payment. Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+      }
+      return;
+    }
+    
+    // Handle cancel button
+    if (data === 'cancel_amount') {
+      if (userSessions[chatId]) {
+        userSessions[chatId].awaitingAmount = false;
+      }
+      await bot.editMessageText('❌ Purchase cancelled.', {
+        chat_id: chatId,
+        message_id: messageId
+      });
+      return;
+    }
+  });
+  
+  // Handle text messages for amount input
+  bot.on('message', async (msg) => {
+    if (!msg.text || !msg.chat) return;
+    
+    const chatId = msg.chat.id;
+    
+    // Only process if we're expecting an amount
+    if (userSessions[chatId]?.awaitingAmount) {
+      const amount = parseFloat(msg.text);
+      const brandId = userSessions[chatId].currentBrandId;
+      
+      try {
+        // Get brand details to validate amount
+        const response = await axios.get<Brand>(`${API_BASE_URL}/brand/${brandId}`);
+        const brand = response.data;
+        
+        if (!brand || !brand.amountRestrictions) {
+          throw new Error('Could not retrieve brand details');
+        }
+        
+        const { minAmount, maxAmount } = brand.amountRestrictions;
+        
+        if (isNaN(amount) || amount < minAmount || amount > maxAmount) {
+          await bot.sendMessage(
+            chatId,
+            `❌ Invalid amount. Please enter a value between ₹${minAmount} and ₹${maxAmount}.`,
+            { parse_mode: 'Markdown' }
+          );
+          return;
+        }
+        
+        // Clear the awaiting state
+        userSessions[chatId].awaitingAmount = false;
+        
+        // Create payment with the entered amount
+        const loadingMessage = await sendMessage(chatId, '🔄 Creating payment link...');
+        const paymentResponse = await createPayment(chatId, amount, 'USDT');
+        
+        if (paymentResponse.status !== 'success' || !paymentResponse.data) {
+          throw new Error(paymentResponse.error || 'Failed to create payment');
+        }
+        
+        const { data: payment } = paymentResponse;
+        
+        // Show payment link
+        const paymentMessage = `💳 *Payment Request*\n\n` +
+          `Brand: *${brand.title}*\n` +
+          `Amount: *${amount} USDT*\n` +
+          `Status: *Pending*\n\n` +
+          `[Click here to pay](${payment.invoice_url})`;
+        
+        await bot.editMessageText(paymentMessage, {
+          chat_id: chatId,
+          message_id: loadingMessage.message_id,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '💳 Pay Now', url: payment.invoice_url }],
+              [{ text: '✅ Check Status', callback_data: `payment_status:${payment.order_id}` }]
+            ]
+          }
+        });
+        
+      } catch (error) {
+        console.error('Error in payment flow:', error);
+        await bot.sendMessage(
+          chatId,
+          '❌ An error occurred while processing your payment. Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+      }
+    }
+  });
+      
+  // Set up a listener for payment status checks
+  bot.on('callback_query', async (callbackQuery) => {
+    if (!callbackQuery.data?.startsWith('payment_status:')) return;
+    if (!callbackQuery.message) return;
+    
+    const chatId = callbackQuery.message.chat.id;
+    const orderId = callbackQuery.data.split(':')[1];
+    
+    try {
+      const paymentResponse = await getPaymentStatus(orderId);
+      
+      if (paymentResponse.status !== 'success' || !paymentResponse.data) {
+        throw new Error(paymentResponse.error || 'Failed to get payment status');
+      }
+      
+      const payment = paymentResponse.data;
+      
+      let statusText = '';
+      switch (payment.status) {
+        case 'completed':
+          statusText = '✅ *Payment Successful!*';
+          break;
+        case 'pending':
+          statusText = '⏳ *Payment Pending*';
+          break;
+        case 'failed':
+          statusText = '❌ *Payment Failed*';
+          break;
+        case 'expired':
+          statusText = '⌛ *Payment Expired*';
+          break;
+        case 'cancelled':
+          statusText = '❌ *Payment Cancelled*';
+          break;
+        default:
+          statusText = `*Status: ${payment.status}*`;
+      }
+      
+      const message = `💳 *Payment Status*\n\n` +
+        `Order ID: *${payment.orderId}*\n` +
+        `Amount: *${payment.amount} USDT*\n` +
+        `${statusText}\n` +
+        (payment.status === 'completed' ? '\nYour voucher will be delivered shortly!' : '');
+      
+      await bot.editMessageText(message, {
+        chat_id: chatId,
+        message_id: callbackQuery.message.message_id,
+        parse_mode: 'Markdown'
       });
       
-    } catch (error: any) {
-      console.error('Error in checkout command:', error);
-      sendMessage(chatId, '❌ An error occurred while processing your request. Please try again later.');
+    } catch (error) {
+      console.error('Error checking payment status:', error);
+      await bot.answerCallbackQuery(callbackQuery.id, {
+        text: '❌ Failed to get payment status. Please try again.',
+        show_alert: true
+      });
     }
   });
 
