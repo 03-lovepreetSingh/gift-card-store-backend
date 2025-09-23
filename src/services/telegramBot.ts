@@ -2,6 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
 import { createPayment, getPaymentStatus } from './paymentService';
 import axios from 'axios';
+import { convertCurrency } from '../utils/currency';
 
 // Define interfaces for brand data
 interface AmountRestrictions {
@@ -687,33 +688,53 @@ const initializeBot = () => {
         
         // Create payment with the entered amount
         const loadingMessage = await sendMessage(chatId, '🔄 Creating payment link...');
-        // put the amount in the payment response
-        const paymentResponse = await createPayment(chatId, 1, 'USDT');
         
-        if (paymentResponse.status !== 'success' || !paymentResponse.data) {
-          throw new Error(paymentResponse.error || 'Failed to create payment');
-        }
-        
-        const { data: payment } = paymentResponse;
-        
-        // Show payment link
-        const paymentMessage = `💳 *Payment Request*\n\n` +
-          `Brand: *${brand.title}*\n` +
-          `Amount: *${amount} USDT*\n` +
-          `Status: *Pending*\n\n` +
-          `[Click here to pay](${payment.invoice_url})`;
-        
-        await bot.editMessageText(paymentMessage, {
-          chat_id: chatId,
-          message_id: loadingMessage.message_id,
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '💳 Pay Now', url: payment.invoice_url }],
-              [{ text: '✅ Check Status', callback_data: `payment_status:${payment.order_id}` }]
-            ]
+        try {
+          // Convert INR to USD (assuming amount is in INR)
+          const usdAmount = await convertCurrency(amount, 'INR', 'USD');
+          
+          // Create payment with the converted amount
+          const paymentResponse = await createPayment(chatId, usdAmount, 'USDT');
+          
+          if (paymentResponse.status !== 'success' || !paymentResponse.data) {
+            throw new Error(paymentResponse.error || 'Failed to create payment');
           }
-        });
+          
+          const { data: payment } = paymentResponse;
+          
+          // Show payment link
+          const paymentMessage = `💳 *Payment Request*\n\n` +
+            `Brand: *${brand.title}*\n` +
+            `Amount: *${amount} USDT*\n` +
+            `Status: *Pending*\n\n` +
+            `[Click here to pay](${payment.invoice_url})`;
+          
+          await bot.editMessageText(paymentMessage, {
+            chat_id: chatId,
+            message_id: loadingMessage.message_id,
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '💳 Pay Now', url: payment.invoice_url }],
+                [{ text: '✅ Check Status', callback_data: `payment_status:${payment.order_id}` }]
+              ]
+            }
+          });
+          
+        } catch (error) {
+          console.error('Error in payment creation:', error);
+          try {
+            await bot.editMessageText('❌ Error creating payment. Please try again.', {
+              chat_id: chatId,
+              message_id: loadingMessage.message_id,
+              parse_mode: 'Markdown'
+            });
+          } catch (editError) {
+            console.error('Failed to update error message:', editError);
+            await sendMessage(chatId, '❌ Error creating payment. Please try again.', { parse_mode: 'Markdown' });
+          }
+          return;
+        }
         
       } catch (error) {
         console.error('Error in payment flow:', error);
