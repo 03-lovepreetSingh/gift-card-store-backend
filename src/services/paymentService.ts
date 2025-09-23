@@ -146,9 +146,8 @@ export interface CreatePaymentResponse {
   };
   error?: string;
 }
-
 export const createPayment = async (
-  userId: string, // Changed from number to string to match database (uuid)
+  userId: string,
   amount: number, 
   inrAmount: number,
   currency: string = 'ETH',
@@ -156,17 +155,17 @@ export const createPayment = async (
   metadata: Record<string, any> = {}
 ): Promise<CreatePaymentResponse> => {
   try {
-    const orderId = uuidv4(); // Generate raw UUID without prefix
+    const orderId = uuidv4();
     const appUrl = process.env.APP_URL || 'http://localhost:4000';
     
-    // Create Plisio invoice with required fields only
-    // All other fields are now handled in plisioService
+    // Create Plisio invoice
     const invoice = await createInvoice({
-      order_number: orderId, // Use raw UUID for Plisio
+      order_number: orderId,
       amount: amount,
-      // All other fields are now hardcoded in plisioService
     });
-console.log("invoice", invoice);
+
+    console.log("invoice", invoice);
+
     if (!invoice.success || !invoice.data) {
       const errorMessage = invoice.error || 'Failed to create payment invoice';
       console.error('Failed to create invoice:', errorMessage);
@@ -177,65 +176,51 @@ console.log("invoice", invoice);
     }
     
     const invoiceData = invoice.data;
+    const now = new Date();
 
-    // Create payment record with invoice info
-    const payment: PaymentData = {
-      // Required fields from operations data
-      id: orderId, // Using orderId as id since it's unique
-      shopId: 'gift-card-shop', // Default shop ID
-      type: 'invoice', // Default type
-      txUrls: [], // Initialize empty array for transaction URLs
-      
-      // Existing fields
-      orderId: orderId,
+    // Create payment record with proper field mapping
+    const paymentRecord = {
+      id: uuidv4(),
       userId: userId,
-      inrAmount: inrAmount,
-      amount: parseFloat(invoiceData.invoice_total_sum) || amount,
-      status: 'pending',
+      shopId: 'default-shop',
+      type: 'crypto_invoice',
+      status: 'new',
+      orderId: orderId,
+      amount: amount.toString(),
+      inr_amount: inrAmount.toString(), // Keep snake_case to match database schema
+      currency,
       invoiceId: invoiceData.txn_id,
       invoiceUrl: invoiceData.invoice_url,
-      currency: currency || 'USD', // Default currency
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      metadata: {
-        ...metadata,
-        source: 'gift-card-store',
-      },
+      txUrls: [],
+      voucherDetails: null,
+      metadata,
+      createdAt: now,
+      updatedAt: now
     };
 
-    // Save payment to database with explicit column mapping
-    await db.insert(paymentsTable).values({
-      id: payment.id,
-      userId: payment.userId,
-      shopId: payment.shopId,
-      type: payment.type,
-      status: payment.status,
-      orderId: payment.orderId,
-      // Use snake_case for database column names
-   
-      amount: payment.amount.toString(),
-      inr_amount: payment.inrAmount.toString(),
-      currency: payment.currency || 'USD',
-      invoiceId: payment.invoiceId || null,
-      invoiceUrl: payment.invoiceUrl || null,
-      txUrls: payment.txUrls || null,
-      voucherDetails: payment.voucherDetails || null,
-      metadata: payment.metadata || null,
-      createdAt: payment.createdAt,
-      updatedAt: payment.updatedAt || new Date()
-    });
-    
-    // Return the response in the format matching Plisio's response
+    // Save to database
+    try {
+      await db.insert(paymentsTable).values(paymentRecord);
+    } catch (dbError) {
+      console.error('Database insert error:', dbError);
+      return {
+        status: 'error',
+        error: 'Failed to save payment to database'
+      };
+    }
+
+    // Return the response
     return {
       status: 'success',
       data: {
-txn_id: payment.invoiceId || '',
-        invoice_url: payment.invoiceUrl || '',
-        invoice_total_sum: payment.amount.toString(),
-        order_id: orderId, // Already a raw UUID
+        txn_id: paymentRecord.invoiceId || '',
+        invoice_url: paymentRecord.invoiceUrl || '',
+        invoice_total_sum: paymentRecord.amount,
+        order_id: orderId,
         user_id: userId
       }
     };
+
   } catch (error: any) {
     console.error('Error creating payment:', error);
     return {
@@ -244,6 +229,103 @@ txn_id: payment.invoiceId || '',
     };
   }
 };
+// export const createPayment = async (
+//   userId: string, // Changed from number to string to match database (uuid)
+//   amount: number, 
+//   inrAmount: number,
+//   currency: string = 'ETH',
+//   email: string = 'lovepreetsingh9810573475@gmail.com',
+//   metadata: Record<string, any> = {}
+// ): Promise<CreatePaymentResponse> => {
+//   try {
+//     const orderId = uuidv4(); // Generate raw UUID without prefix
+//     const appUrl = process.env.APP_URL || 'http://localhost:4000';
+    
+//     // Create Plisio invoice with required fields only
+//     // All other fields are now handled in plisioService
+//     const invoice = await createInvoice({
+//       order_number: orderId, // Use raw UUID for Plisio
+//       amount: amount,
+//       // All other fields are now hardcoded in plisioService
+//     });
+// console.log("invoice", invoice);
+//     if (!invoice.success || !invoice.data) {
+//       const errorMessage = invoice.error || 'Failed to create payment invoice';
+//       console.error('Failed to create invoice:', errorMessage);
+//       return {
+//         status: 'error',
+//         error: errorMessage,
+//       };
+//     }
+    
+//     const invoiceData = invoice.data;
+
+//     // Create payment record with invoice info
+//     const payment: PaymentData = {
+//       // Required fields from operations data
+//       id: orderId, // Using orderId as id since it's unique
+//       shopId: 'gift-card-shop', // Default shop ID
+//       type: 'invoice', // Default type
+//       txUrls: [], // Initialize empty array for transaction URLs
+      
+//       // Existing fields
+//       orderId: orderId,
+//       userId: userId,
+//       inrAmount: inrAmount,
+//       amount: parseFloat(invoiceData.invoice_total_sum) || amount,
+//       status: 'pending',
+//       invoiceId: invoiceData.txn_id,
+//       invoiceUrl: invoiceData.invoice_url,
+//       currency: currency || 'USD', // Default currency
+//       createdAt: new Date(),
+//       updatedAt: new Date(),
+//       metadata: {
+//         ...metadata,
+//         source: 'gift-card-store',
+//       },
+//     };
+
+//     // Save payment to database with explicit column mapping
+//     await db.insert(paymentsTable).values({
+//       id: payment.id,
+//       userId: payment.userId,
+//       shopId: payment.shopId,
+//       type: payment.type,
+//       status: payment.status,
+//       orderId: payment.orderId,
+//       // Use snake_case for database column names
+   
+//       amount: payment.amount.toString(),
+//       inr_amount: payment.inrAmount.toString(),
+//       currency: payment.currency || 'USD',
+//       invoiceId: payment.invoiceId || null,
+//       invoiceUrl: payment.invoiceUrl || null,
+//       txUrls: payment.txUrls || null,
+//       voucherDetails: payment.voucherDetails || null,
+//       metadata: payment.metadata || null,
+//       createdAt: payment.createdAt,
+//       updatedAt: payment.updatedAt || new Date()
+//     });
+    
+//     // Return the response in the format matching Plisio's response
+//     return {
+//       status: 'success',
+//       data: {
+// txn_id: payment.invoiceId || '',
+//         invoice_url: payment.invoiceUrl || '',
+//         invoice_total_sum: payment.amount.toString(),
+//         order_id: orderId, // Already a raw UUID
+//         user_id: userId
+//       }
+//     };
+//   } catch (error: any) {
+//     console.error('Error creating payment:', error);
+//     return {
+//       status: 'error',
+//       error: error.message || 'Failed to create payment',
+//     };
+//   }
+// };
 
 interface PlisioOperation {
   txn_id: string;
