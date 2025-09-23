@@ -84,7 +84,7 @@ interface Brand {
 }
 
 dotenv.config();
-const API_BASE_URL = 'https://gift-card-store-backend-1.onrender.com';
+const API_BASE_URL = process.env.API_URL;
 let currentPage = 1;
 const ITEMS_PER_PAGE = 10;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
