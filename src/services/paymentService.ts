@@ -247,71 +247,95 @@ const getPaymentStatusFromPlisio = async (txnId: string): Promise<{ success: boo
 };
 
 export const getPaymentStatus = async (orderId: string) => {
-  try {
-    // Get payment from database
-    const [paymentRow] = await db
-      .select()
-      .from(paymentsTable)
-      .where(eq(paymentsTable.invoiceId, orderId))
-      .limit(1);
-    
-    if (!paymentRow) {
-      return {
-        success: false,
-        error: 'Payment not found',
-      };
-    }
-    
-    const payment = mapDbPaymentToPaymentData(paymentRow);
-
-    console.log('Checking payment status for order:', orderId);
-    
-    // Check with Plisio API
-    const plisioStatus = await getPaymentStatusFromPlisio(orderId);
-    
-    if (!plisioStatus.success) {
-      console.warn('Failed to get status from Plisio, using local status');
-      return {
-        success: true,
-        data: payment,
-      };
-    }
-
-    // Create updated payment object
-    const updatedPayment: PaymentData = {
-      ...payment,
-      status: plisioStatus.status as PaymentData['status'],
-      updatedAt: new Date(),
+  // Get payment from database first
+  const [paymentRow] = await db
+    .select()
+    .from(paymentsTable)
+    .where(eq(paymentsTable.invoiceId, orderId))
+    .limit(1);
+  
+  if (!paymentRow) {
+    return {
+      success: false,
+      error: 'Payment not found',
     };
+  }
+  
+  // Store the current payment data
+  const currentPayment = mapDbPaymentToPaymentData(paymentRow);
+  
+  try {
+    console.log('Checking payment status for order:', orderId);
 
-    // Update payment status in database if it's different
-    if (payment.status !== updatedPayment.status) {
+    // First, try to get the latest status from Plisio
+    const plisioApiKey = process.env.PLISIO_API_KEY;
+    if (!plisioApiKey) {
+      throw new Error('PLISIO_API_KEY is not set');
+    }
+
+    // Fetch the latest operations from Plisio
+    const response = await axios.get<PlisioResponse>(
+      'https://api.plisio.net/api/v1/operations',
+      {
+        params: {
+          api_key: plisioApiKey,
+          order_id: orderId,
+          limit: 1,
+        },
+      }
+    );
+
+    // Process the response
+    if (response.data.status === 'success' && response.data.data.operations.length > 0) {
+      const latestOperation = response.data.data.operations[0];
+      
+      // Update payment with the latest status
       const updateData: any = {
-        status: updatedPayment.status,
+        status: latestOperation.status,
         updatedAt: new Date(),
       };
-      
+
       // If payment is completed, process vouchers if not already done
-      if (updatedPayment.status === 'completed' && !updatedPayment.voucherDetails) {
+      if (latestOperation.status === 'completed' && !currentPayment.voucherDetails) {
         // Add your voucher generation logic here
-        // const vouchers = await generateVouchers(updatedPayment);
+        // const vouchers = await generateVouchers(payment);
         // updateData.voucherDetails = vouchers;
-        // updatedPayment.voucherDetails = vouchers;
       }
-      
+
+      // Update the payment in the database
       await db
         .update(paymentsTable)
         .set(updateData)
-        .where(eq(paymentsTable.id, updatedPayment.id));
+        .where(eq(paymentsTable.id, currentPayment.id));
+
+      // Return the updated payment
+      const updatedPayment = {
+        ...currentPayment,
+        ...updateData,
+      };
+
+      return {
+        success: true,
+        data: updatedPayment,
+      };
     }
-    
+
+    // If no operations found, use the current payment data
     return {
       success: true,
-      data: updatedPayment,
+      data: currentPayment,
     };
+
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error getting payment status:', errorMessage);
+    
+    // In case of error, still return the existing payment data
+    return {
+      success: true,
+      data: currentPayment,
+    };
+
     return {
       success: false,
       error: errorMessage,
