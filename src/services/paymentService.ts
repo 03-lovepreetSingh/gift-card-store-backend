@@ -1,10 +1,54 @@
-import { console } from 'inspector';
 import { createInvoice, getInvoiceStatus, type InvoiceData } from './plisioService';
 import { v4 as uuidv4 } from 'uuid';
+import { db } from '../db';
+import { eq } from 'drizzle-orm';
+import { payments as paymentsTable } from '../db/schema';
+import type { InferInsertModel } from 'drizzle-orm';
 
-// In-memory store for demo purposes
-// In production, use a database like MongoDB or PostgreSQL
-const payments = new Map<string, PaymentData>();
+// Helper type for database row
+interface DbPaymentRow {
+  id: string;
+  userId: number;
+  shopId: string;
+  type: string;
+  status: string;
+  orderId: string;
+  amount: string;
+  currency: string;
+  invoiceId: string | null;
+  invoiceUrl: string | null;
+  txUrls: string[] | null;
+  voucherDetails: Array<{
+    id: string;
+    cardType: string;
+    cardPin: string;
+    cardNumber: string;
+    validTill: string;
+    amount: number;
+  }> | null;
+  metadata: any;
+  createdAt: Date;
+  updatedAt: Date | null;
+}
+
+// Helper function to convert database row to PaymentData
+const mapDbPaymentToPaymentData = (row: DbPaymentRow): PaymentData => ({
+  id: row.id,
+  userId: row.userId,
+  shopId: row.shopId,
+  type: row.type,
+  status: row.status,
+  txUrls: row.txUrls || [],
+  orderId: row.orderId,
+  amount: parseFloat(row.amount),
+  invoiceId: row.invoiceId || undefined,
+  invoiceUrl: row.invoiceUrl || undefined,
+  currency: row.currency || 'USD',
+  voucherDetails: row.voucherDetails || undefined,
+  metadata: row.metadata || {},
+  createdAt: new Date(row.createdAt),
+  updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date()
+});
 
 export interface VoucherDetail {
   id: string;
@@ -16,17 +60,24 @@ export interface VoucherDetail {
 }
 
 export interface PaymentData {
-  orderId: string;
+  // From operations data
   userId: number;
+  shopId: string;
+  type: string;
+  status: 'pending' | 'completed' | 'error' | 'new' | 'expired' | 'mismatch' | 'cancelled' | 'failed' | string;
+  txUrls: string[];
+  id: string;
+  
+  // Additional fields used in the codebase
+  orderId: string;
   amount: number;
-  status: 'pending' | 'completed' | 'expired' | 'cancelled' | 'failed' | string;
   invoiceId?: string;
   invoiceUrl?: string;
-  currency: string;
-  createdAt: Date;
+  currency?: string;
+  voucherDetails?: VoucherDetail[];
+  createdAt?: Date;
   updatedAt?: Date;
   metadata?: Record<string, any>;
-  voucherDetails?: VoucherDetail[];
 }
 
 export interface CreatePaymentResponse {
@@ -73,13 +124,20 @@ console.log(amount);
 
     // Create payment record with invoice info
     const payment: PaymentData = {
+      // Required fields from operations data
+      id: orderId, // Using orderId as id since it's unique
+      shopId: 'gift-card-shop', // Default shop ID
+      type: 'invoice', // Default type
+      txUrls: [], // Initialize empty array for transaction URLs
+      
+      // Existing fields
       orderId: orderId,
       userId: userId,
       amount: parseFloat(invoiceData.invoice_total_sum) || amount,
       status: 'pending',
       invoiceId: invoiceData.txn_id,
       invoiceUrl: invoiceData.invoice_url,
-      currency: currency,
+      currency: currency || 'USD', // Default currency
       createdAt: new Date(),
       updatedAt: new Date(),
       metadata: {
@@ -88,8 +146,24 @@ console.log(amount);
       },
     };
 
-    // Save payment to in-memory store (replace with database in production)
-    payments.set(orderId, payment);
+    // Save payment to database
+    await db.insert(paymentsTable).values({
+      id: payment.id,
+      userId: payment.userId,
+      shopId: payment.shopId,
+      type: payment.type,
+      status: payment.status,
+      orderId: payment.orderId,
+      amount: payment.amount.toString(),
+      currency: payment.currency || 'USD',
+      invoiceId: payment.invoiceId || null,
+      invoiceUrl: payment.invoiceUrl || null,
+      txUrls: payment.txUrls || null,
+      voucherDetails: payment.voucherDetails || null,
+      metadata: payment.metadata || null,
+      createdAt: payment.createdAt,
+      updatedAt: payment.updatedAt || new Date()
+    });
     
     // Return the response in the format matching Plisio's response
     return {
@@ -174,13 +248,21 @@ const getPaymentStatusFromPlisio = async (txnId: string): Promise<{ success: boo
 
 export const getPaymentStatus = async (orderId: string) => {
   try {
-    const payment = payments.get(orderId);
-    if (!payment) {
+    // Get payment from database
+    const [paymentRow] = await db
+      .select()
+      .from(paymentsTable)
+      .where(eq(paymentsTable.orderId, orderId))
+      .limit(1);
+    
+    if (!paymentRow) {
       return {
         success: false,
-        error: 'Payment not found in local store',
+        error: 'Payment not found',
       };
     }
+    
+    const payment = mapDbPaymentToPaymentData(paymentRow);
 
     console.log('Checking payment status for order:', orderId);
     
@@ -195,27 +277,55 @@ export const getPaymentStatus = async (orderId: string) => {
       };
     }
 
-    // Update local payment status if it's different
-    if (plisioStatus.status && payment.status !== plisioStatus.status) {
-      payment.status = plisioStatus.status as PaymentData['status'];
-      payment.updatedAt = new Date();
-      // In a real application, save to database here
+    // Create updated payment object
+    const updatedPayment: PaymentData = {
+      ...payment,
+      status: plisioStatus.status as PaymentData['status'],
+      updatedAt: new Date(),
+    };
+
+    // Update payment status in database if it's different
+    if (payment.status !== updatedPayment.status) {
+      const updateData: any = {
+        status: updatedPayment.status,
+        updatedAt: new Date(),
+      };
+      
+      // If payment is completed, process vouchers if not already done
+      if (updatedPayment.status === 'completed' && !updatedPayment.voucherDetails) {
+        // Add your voucher generation logic here
+        // const vouchers = await generateVouchers(updatedPayment);
+        // updateData.voucherDetails = vouchers;
+        // updatedPayment.voucherDetails = vouchers;
+      }
+      
+      await db
+        .update(paymentsTable)
+        .set(updateData)
+        .where(eq(paymentsTable.id, updatedPayment.id));
     }
     
     return {
       success: true,
-      data: payment,
+      data: updatedPayment,
     };
-  } catch (error: any) {
-    console.error('Error getting payment status:', error);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error getting payment status:', errorMessage);
     return {
       success: false,
-      error: error.message || 'Failed to get payment status',
+      error: errorMessage,
     };
   }
 };
 
-export const handlePaymentCallback = async (data: any) => {
+interface PaymentCallbackData {
+  order_number: string;
+  status: string;
+  [key: string]: any;
+}
+
+export const handlePaymentCallback = async (data: PaymentCallbackData) => {
   try {
     // Verify the callback data
     const { order_number, status } = data;
@@ -225,16 +335,29 @@ export const handlePaymentCallback = async (data: any) => {
       return { success: false, error: 'Invalid callback data' };
     }
     
-    // In a real app, you would:
-    // 1. Verify the callback signature
-    // 2. Update the payment status in your database
-    const payment = payments.get(order_number);
-    if (!payment) {
-      console.error(`Payment not found for order: ${order_number}`);
+    // Find the payment in our database
+    const [paymentRow] = await db
+      .select()
+      .from(paymentsTable)
+      .where(eq(paymentsTable.orderId, order_number))
+      .limit(1);
+    
+    if (!paymentRow) {
+      console.error('Payment not found for order:', order_number);
       return { success: false, error: 'Payment not found' };
     }
     
-    // Update payment status based on Plisio status
+    const payment = mapDbPaymentToPaymentData(paymentRow);
+
+    // Update payment status in database
+    await db
+      .update(paymentsTable)
+      .set({
+        status: (status || 'failed').toLowerCase() as PaymentData['status'],
+        updatedAt: new Date()
+      })
+      .where(eq(paymentsTable.id, payment.id));
+
     payment.status = (status || 'failed').toLowerCase() as PaymentData['status'];
     payment.updatedAt = new Date();
     

@@ -765,7 +765,7 @@ const initializeBot = () => {
     try {
       // Show typing indicator
       await bot.sendChatAction(chatId, 'typing');
-      
+      console.log('Checking payment status for order:', orderId);
       const paymentResponse = await getPaymentStatus(orderId);
       
       if (!paymentResponse.success || !paymentResponse.data) {
