@@ -14,7 +14,7 @@ interface CoinGeckoResponse {
     inr: number;
   };
 }
-
+// added a comment
 // Function to get current ETH to INR rate
 async function getEthToInrRate(): Promise<number> {
   try {
