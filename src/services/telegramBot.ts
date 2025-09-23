@@ -443,7 +443,7 @@ const initializeBot = () => {
               }>;
               failureReason: string | null;
             }>(
-              'https://gift-card-store-backend-1.onrender.com/api/orders',
+              'https://gift-card-store-backend-2.onrender.com/api/orders',
               orderData,
               {
                 headers: {
@@ -684,7 +684,7 @@ const initializeBot = () => {
               [{ text: 'Check Status', callback_data: `payment_status:${payment.txn_id}` }]
             ]
           },
-          disable_web_page_preview: true
+    
         });
         
       } catch (error) {
@@ -765,8 +765,13 @@ const initializeBot = () => {
             throw new Error(paymentResponse.error || 'Failed to create payment');
           }
           
-          const { data: payment } = paymentResponse;
-          console.log("payment", payment);
+          const payment = paymentResponse.data;
+          if (!payment) {
+            throw new Error('No payment data received');
+          }
+          
+          console.log("Payment created:", payment);
+          
           // Show payment link
           const paymentMessage = `💳 *Payment Request*\n\n` +
             `Brand: *${brand.title}*\n` +
@@ -780,11 +785,12 @@ const initializeBot = () => {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: 'Pay Now', url: payment.invoice_url }],
-                [{ text: 'Check Status', callback_data: `payment_status:${payment.txn_id}` }]
+                [{ text: 'Pay Now', url: payment.invoice_url || '#' }],
+                [{ text: 'Check Status', callback_data: `payment_status:${payment.txn_id || 'unknown'}` }]
               ]
             },
-            disable_web_page_preview: true
+            disable_web_page_preview: true,
+         
           });
           
         } catch (error) {
@@ -879,7 +885,7 @@ const initializeBot = () => {
             }>;
             failureReason: string | null;
           }>(
-            'https://gift-card-store-backend-1.onrender.com/order',
+            'https://gift-card-store-backend-2.onrender.com/order',
             orderData,
             {
               headers: {
@@ -982,7 +988,7 @@ const initializeBot = () => {
       // Prepare reply markup based on status
       const replyMarkup = {
         inline_keyboard: [
-[{ text: '🔄 Refresh Status', callback_data: `payment_status:${orderId}` }],
+          [{ text: '🔄 Refresh Status', callback_data: `payment_status:${orderId}` }],
           [{ text: '📞 Contact Support', url: 'https://t.me/your_support_username' }]
         ]
       };
@@ -1026,7 +1032,7 @@ const initializeBot = () => {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-[{ text: '🔄 Try Again', callback_data: `payment_status:${orderId}` }],
+                [{ text: '🔄 Try Again', callback_data: `payment_status:${orderId}` }],
                 [{ text: '📞 Contact Support', url: 'https://t.me/your_support_username' }]
               ]
             }
