@@ -352,8 +352,95 @@ const initializeBot = () => {
       // Handle payment status callbacks
       if (data.startsWith('payment_status:')) {
         const orderId = data.split(':')[1];
-        const payment = await getPaymentStatus(orderId);
-        // ... existing payment status handling code ...
+        const paymentResponse = await getPaymentStatus(orderId);
+        
+        if (paymentResponse.success && paymentResponse.data) {
+          const payment = paymentResponse.data;
+          
+          try {
+            // Get user details from the message
+            const user = callbackQuery.from;
+            const amount = payment.amount || 0;
+            
+            // Prepare the order data
+            const orderData = {
+              productId: userSessions[chatId]?.currentBrandId || '',
+              referenceId: `REF-${Date.now()}`,
+              amount: amount,
+              denominationDetails: [
+                {
+                  denomination: amount,
+                  quantity: 1
+                }
+              ],
+              customerDetails: {
+                name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Telegram User',
+                phoneNumber: user.id.toString(),
+                email: `${user.username || user.id}@telegram.org`
+              },
+              recipientDetails: {
+                name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Telegram User',
+                phoneNumber: user.id.toString()
+              }
+            };
+
+            // Make the POST request to create the order
+            const response = await axios.post<{
+              id: string;
+              referenceId: string;
+              status: string;
+              vouchers: Array<{
+                id: string;
+                cardType: string;
+                cardPin: string;
+                cardNumber: string;
+                validTill: string;
+                amount: number;
+              }>;
+              failureReason: string | null;
+            }>(
+              'https://gift-card-store-backend-1.onrender.com/order',
+              orderData,
+              {
+                headers: {
+                  'Content-Type': 'application/json'
+                }
+              }
+            );
+
+            // Build the success message with voucher details
+            let message = '✅ *Order Confirmation*\n\n' +
+              `Order ID: ${response.data.id || 'N/A'}\n` +
+              `Reference ID: ${response.data.referenceId || 'N/A'}\n` +
+              `Status: ${response.data.status || 'N/A'}\n\n`;
+
+            // Add voucher details if available
+            if (response.data.vouchers && response.data.vouchers.length > 0) {
+              message += '*🎫 Voucher Details:*\n';
+              response.data.vouchers.forEach((voucher, index) => {
+                message += `\n*Voucher ${index + 1}:*\n`;
+                message += `Card Number: ${voucher.cardNumber || 'N/A'}\n`;
+                message += `PIN: ${voucher.cardPin || 'N/A'}\n`;
+                message += `Amount: ₹${voucher.amount || '0'}\n`;
+                message += `Valid Till: ${voucher.validTill || 'N/A'}\n`;
+                message += `Type: ${voucher.cardType || 'N/A'}\n`;
+              });
+            }
+
+            message += '\nThank you for your purchase! 🎉';
+
+            // Send the message with voucher details
+            await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+          } catch (error) {
+            console.error('Error creating order:', error);
+            await bot.sendMessage(
+              chatId,
+              '❌ Failed to create order. Please contact support with your order ID: ' + orderId,
+              { parse_mode: 'Markdown' }
+            );
+          }
+        }
         return;
       }
   
@@ -511,7 +598,9 @@ const initializeBot = () => {
         
         // Create payment with the entered amount
         const loadingMessage = await sendMessage(chatId, '🔄 Creating payment link...');
+      // put the amount in the payment response
         const paymentResponse = await createPayment(chatId, amount, 'USDT');
+      
         
         if (paymentResponse.status !== 'success' || !paymentResponse.data) {
           throw new Error(paymentResponse.error || 'Failed to create payment');
@@ -598,7 +687,8 @@ const initializeBot = () => {
         
         // Create payment with the entered amount
         const loadingMessage = await sendMessage(chatId, '🔄 Creating payment link...');
-        const paymentResponse = await createPayment(chatId, amount, 'USDT');
+        // put the amount in the payment response
+        const paymentResponse = await createPayment(chatId, 1, 'USDT');
         
         if (paymentResponse.status !== 'success' || !paymentResponse.data) {
           throw new Error(paymentResponse.error || 'Failed to create payment');
