@@ -308,19 +308,19 @@ const initializeBot = () => {
             // Description
             caption += `📝 *Description:*\n${brand.brandDescription || 'No description available.'}`;
             
+            // Create keyboard with action buttons (defined here to be accessible in both try and catch blocks)
+            const keyboard = {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🛒 Buy Now', callback_data: `buy_${brand.id}` }],
+                  [{ text: '🔙 Back to Brands', callback_data: 'brands_1' }]  // Go back to first page
+                ]
+              }
+            };
+
             // Send the image with the detailed caption
             if (brand.iconImageUrl) {
-              try {
-                // Create keyboard with action buttons
-                const keyboard = {
-                  reply_markup: {
-                    inline_keyboard: [
-                      [{ text: '🛒 Buy Now', callback_data: `buy_${brand.id}` }],
-                      [{ text: '🔙 Back to Brands', callback_data: 'brands_1' }]  // Go back to first page
-                    ]
-                  }
-                };
-                
+              try {                
                 await bot.sendPhoto(chatId, brand.iconImageUrl, {
                   caption: caption,
                   parse_mode: 'Markdown',
@@ -333,7 +333,6 @@ const initializeBot = () => {
                 // If image fails to send, fall back to text message
                 let message = caption;
                 
-              
                 // Update the message with brand details
                 await bot.editMessageText(message, {
                   chat_id: chatId,
