@@ -396,21 +396,9 @@ const initializeBot = () => {
           try {
             // Get user details from the message
             const user = callbackQuery.from;
-            const amountEth = typeof payment.amount === 'string' 
-              ? parseFloat(payment.amount) 
-              : typeof payment.amount === 'number' 
-                ? payment.amount 
-                : 0;
             
-            if (isNaN(amountEth)) {
-              throw new Error('Invalid payment amount');
-            }
+            const amountInr = paymentResponse.data.inrAmount;
             
-            // Get current ETH to INR rate and convert
-            const ethToInrRate = await getEthToInrRate();
-            const amountInr = Math.round(amountEth * ethToInrRate);
-            
-            console.log(`Converting ${amountEth} ETH to INR at rate: 1 ETH = ${ethToInrRate} INR`);
             console.log(`Amount in INR: ${amountInr}`);
             // Prepare the order data according to the expected format
             const orderData = {
@@ -752,7 +740,7 @@ const initializeBot = () => {
           const usdAmount = await convertCurrency(amount, 'INR', 'USD');
           
           // Create payment with the converted amount
-          const paymentResponse = await createPayment(chatId, usdAmount, inrAmount.toString(), 'USDT');
+          const paymentResponse = await createPayment(chatId, usdAmount, inrAmount, 'USDT');
           
           if (paymentResponse.status !== 'success' || !paymentResponse.data) {
             throw new Error(paymentResponse.error || 'Failed to create payment');

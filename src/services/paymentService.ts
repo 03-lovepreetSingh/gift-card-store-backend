@@ -13,8 +13,8 @@ interface DbPaymentRow {
   type: string;
   status: string;
   orderId: string;
-  amount: string;
-  inrAmount: string;
+  amount: string;  // Stored as string to maintain precision
+  inrAmount: string;  // Stored as string to maintain precision
   currency: string;
   invoiceId: string | null;
   invoiceUrl: string | null;
@@ -98,6 +98,7 @@ export interface CreatePaymentResponse {
 export const createPayment = async (
   userId: number, 
   amount: number, 
+  inrAmount: number,
   currency: string = 'ETH',
   email: string = 'lovepreetsingh9810573475@gmail.com',
   metadata: Record<string, any> = {}
@@ -136,7 +137,7 @@ console.log(amount);
       // Existing fields
       orderId: orderId,
       userId: userId,
-      inrAmount: amount,
+      inrAmount: inrAmount,
       amount: parseFloat(invoiceData.invoice_total_sum) || amount,
       status: 'pending',
       invoiceId: invoiceData.txn_id,
@@ -252,24 +253,40 @@ const getPaymentStatusFromPlisio = async (txnId: string): Promise<{ success: boo
 };
 
 export const getPaymentStatus = async (orderId: string) => {
-  // Get payment from database first
-  const [paymentRow] = await db
-    .select()
-    .from(paymentsTable)
-    .where(eq(paymentsTable.invoiceId, orderId))
-    .limit(1);
-  
-  if (!paymentRow) {
-    return {
-      success: false,
-      error: 'Payment not found',
-    };
-  }
-  
-  // Store the current payment data
-  const currentPayment = mapDbPaymentToPaymentData(paymentRow);
-  
   try {
+    // Get payment from database first
+    const rawPaymentRow = await db
+      .select()
+      .from(paymentsTable)
+      .where(eq(paymentsTable.invoiceId, orderId))
+      .limit(1)
+      .then(rows => rows[0]);
+      
+    if (!rawPaymentRow) {
+      return {
+        success: false,
+        error: 'Payment not found',
+      };
+    }
+    
+    // The database returns numeric fields as strings, so we need to convert them
+    // to the correct types expected by DbPaymentRow
+    const paymentRow: DbPaymentRow = {
+      ...rawPaymentRow,
+      // Ensure inrAmount is a string as per DbPaymentRow type
+      inrAmount: rawPaymentRow.inrAmount.toString(),
+      // amount is already a string in the database
+      amount: rawPaymentRow.amount.toString(),
+      // Handle voucher details if they exist
+      voucherDetails: rawPaymentRow.voucherDetails ? rawPaymentRow.voucherDetails.map(v => ({
+        ...v,
+        amount: Number(v.amount) // Convert voucher amount to number
+      })) : null
+    };
+    
+    // Map the database row to our application's PaymentData type
+    const currentPayment = mapDbPaymentToPaymentData(paymentRow);
+  
     console.log('Checking payment status for order:', orderId);
 
     // First, try to get the latest status from Plisio
@@ -278,69 +295,73 @@ export const getPaymentStatus = async (orderId: string) => {
       throw new Error('PLISIO_API_KEY is not set');
     }
 
-    // Fetch the latest operations from Plisio
-    const response = await axios.get<PlisioResponse>(
-      'https://api.plisio.net/api/v1/operations',
-      {
-        params: {
-          api_key: plisioApiKey,
-          order_id: orderId,
-          limit: 1,
-        },
+    try {
+      // Fetch the latest operations from Plisio
+      const response = await axios.get<PlisioResponse>(
+        'https://api.plisio.net/api/v1/operations',
+        {
+          params: {
+            api_key: plisioApiKey,
+            order_id: orderId,
+            limit: 1,
+          },
+        }
+      );
+
+      // Process the response
+      if (response.data.status === 'success' && response.data.data.operations.length > 0) {
+        const latestOperation = response.data.data.operations[0];
+        
+        // Update payment with the latest status
+        const updateData: any = {
+          status: latestOperation.status,
+          updatedAt: new Date(),
+        };
+
+        // If payment is completed, process vouchers if not already done
+        if (latestOperation.status === 'completed' && !currentPayment.voucherDetails) {
+          // Add your voucher generation logic here
+          // const vouchers = await generateVouchers(payment);
+          // updateData.voucherDetails = vouchers;
+        }
+
+        // Update the payment in the database
+        await db
+          .update(paymentsTable)
+          .set(updateData)
+          .where(eq(paymentsTable.id, currentPayment.id));
+
+        // Return the updated payment
+        const updatedPayment = {
+          ...currentPayment,
+          ...updateData,
+        };
+        console.log('Updated payment:', updatedPayment);  
+        return {
+          success: true,
+          data: updatedPayment,
+        };
       }
-    );
 
-    // Process the response
-    if (response.data.status === 'success' && response.data.data.operations.length > 0) {
-      const latestOperation = response.data.data.operations[0];
-      
-      // Update payment with the latest status
-      const updateData: any = {
-        status: latestOperation.status,
-        updatedAt: new Date(),
-      };
-
-      // If payment is completed, process vouchers if not already done
-      if (latestOperation.status === 'completed' && !currentPayment.voucherDetails) {
-        // Add your voucher generation logic here
-        // const vouchers = await generateVouchers(payment);
-        // updateData.voucherDetails = vouchers;
-      }
-
-      // Update the payment in the database
-      await db
-        .update(paymentsTable)
-        .set(updateData)
-        .where(eq(paymentsTable.id, currentPayment.id));
-
-      // Return the updated payment
-      const updatedPayment = {
-        ...currentPayment,
-        ...updateData,
-      };
-
+      // If no operations found, use the current payment data
       return {
         success: true,
-        data: updatedPayment,
+        data: currentPayment,
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Error getting payment status from Plisio:', errorMessage);
+      
+      // In case of error, still return the existing payment data
+      return {
+        success: true,
+        data: currentPayment,
       };
     }
-
-    // If no operations found, use the current payment data
-    return {
-      success: true,
-      data: currentPayment,
-    };
-
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Error getting payment status:', errorMessage);
+    console.error('Error in getPaymentStatus:', errorMessage);
     
-    // In case of error, still return the existing payment data
-    return {
-      success: true,
-      data: currentPayment,
-    };
-
     return {
       success: false,
       error: errorMessage,
