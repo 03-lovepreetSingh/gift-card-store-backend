@@ -203,7 +203,7 @@ export const createPayment = async (
     // Create payment record with proper field mapping and snake_case column names
     const paymentRecord = {
       id: uuidv4(),
-      user_id: validUserId, // Use snake_case to match database schema
+      user_id: userId, // Use snake_case to match database schema
       shop_id: 'default-shop',
       type: 'crypto_invoice',
       status: 'new',

@@ -25,7 +25,7 @@ export const orders = pgTable("orders", {
 export const vouchers = pgTable("vouchers", {
   id: uuid("id").primaryKey().defaultRandom(),
   partnerVoucherId: varchar("partner_voucher_id").notNull(),
-  orderId: uuid("order_id").notNull().references(() => orders.id),
+  orderId:varchar("order_id").notNull(),
   cardType: varchar("card_type").notNull(),
   cardPin: varchar("card_pin"),
   cardNumber: varchar("card_number"),
@@ -37,7 +37,7 @@ export const vouchers = pgTable("vouchers", {
 // Payments table - Fixed inconsistencies
 export const payments = pgTable("payments", {
   id: uuid("id").primaryKey().defaultRandom(), // Changed from varchar to uuid
-  userId: uuid("user_id").notNull().references(() => users.id), // Changed from integer to uuid and added foreign key
+  userId: varchar("user_id").notNull(),
   shopId: varchar("shop_id").notNull(),
   type: varchar("type").notNull(),
   status: varchar("status").notNull(),
