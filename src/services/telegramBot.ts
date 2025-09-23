@@ -272,70 +272,68 @@ const initializeBot = () => {
               throw new Error('Brand not found');
             }
             
-            // Format brand details message with image and description
-            let message = '';
-            
-            // Add brand image if available
-            if (brand.iconImageUrl) {
-              // Send the image first
-              try {
-                await bot.sendPhoto(chatId, brand.iconImageUrl, {
-                  caption: `*${brand.title || 'Brand Details'}*`,
-                  parse_mode: 'Markdown'
-                });
-              } catch (error) {
-                console.error('Error sending brand image:', error);
-              }
-            }
-            
-            // Start building the details message
-            message = `*${brand.title || 'Brand Details'}*\n\n`;
-            
-            // Basic Info
-            message += `🆔 *ID:* ${brand.id}\n`;
-            message += `🟢 *Status:* ${brand.status === 'ACTIVE' ? '✅ Available' : '⏳ Coming Soon'}\n\n`;
+            // Build the caption with all brand details
+            let caption = `*${brand.title || 'Brand Details'}*\n\n`;
+            caption += `🆔 *ID:* ${brand.id}\n`;
+            caption += `🟢 *Status:* ${brand.status === 'ACTIVE' ? '✅ Available' : '⏳ Coming Soon'}\n\n`;
             
             // Denomination Info
             if (brand.amountRestrictions) {
               const { minAmount, maxAmount, denominations } = brand.amountRestrictions;
-              message += `💰 *Price Range:* ₹${minAmount} - ₹${maxAmount}\n`;
+              caption += `💰 *Price Range:* ₹${minAmount} - ₹${maxAmount}\n`;
               
               if (denominations?.length > 0) {
-                message += `📋 *Available Denominations:* ${denominations.map(d => `₹${d}`).join(', ')}\n`;
+                caption += `📋 *Available Denominations:* ${denominations.map(d => `₹${d}`).join(', ')}\n`;
               }
-              message += '\n';
+              caption += '\n';
             }
             
             // Validity
             if (brand.voucherExpiryInMonths) {
-              message += `⏳ *Validity:* ${brand.voucherExpiryInMonths} months\n`;
+              caption += `⏳ *Validity:* ${brand.voucherExpiryInMonths} months\n`;
             }
             
             // Discount
             if (brand.discountPercentage) {
-              message += `🏷️ *Discount:* ${brand.discountPercentage}% OFF\n`;
+              caption += `🏷️ *Discount:* ${brand.discountPercentage}% OFF\n\n`;
             }
             
-            // Description - Always show description in detailed view
-            message += `\n📝 *Description:*\n${brand.brandDescription || 'No description available.'}\n`;
+            // Description
+            caption += `📝 *Description:*\n${brand.brandDescription || 'No description available.'}`;
             
-            // Create keyboard with action buttons
-            const keyboard = {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '🛒 Buy Now', callback_data: `buy_${brand.id}` }],
-                  [{ text: '🔙 Back to Brands', callback_data: 'brands_1' }]  // Go back to first page
-                ]
+            // Send the image with the detailed caption
+            if (brand.iconImageUrl) {
+              try {
+                await bot.sendPhoto(chatId, brand.iconImageUrl, {
+                  caption: caption,
+                  parse_mode: 'Markdown'
+                });
+                // No need for a separate message if we have an image
+                return;
+              } catch (error) {
+                console.error('Error sending brand image:', error);
+                // If image fails to send, fall back to text message
+                let message = caption;
+                
+                // Create keyboard with action buttons
+                const keyboard = {
+                  reply_markup: {
+                    inline_keyboard: [
+                      [{ text: '🛒 Buy Now', callback_data: `buy_${brand.id}` }],
+                      [{ text: '🔙 Back to Brands', callback_data: 'brands_1' }]  // Go back to first page
+                    ]
+                  }
+                };
+                
+                // Update the message with brand details
+                await bot.editMessageText(message, {
+                  chat_id: chatId,
+                  message_id: messageId,
+                  parse_mode: 'Markdown',
+                  ...keyboard
+                });
               }
-            };
-            
-            // Update the message with brand details
-            await bot.editMessageText(message, {
-              chat_id: chatId,
-              message_id: messageId,
-              parse_mode: 'Markdown',
-              ...keyboard
-            });
+            }
             
           } catch (error) {
             console.error('Error fetching brand details:', error);
