@@ -9,10 +9,7 @@ import { startCronJobs } from "./cron/job";
 import ordersRoutes from "./routes/orders";
 import telegramRoutes from "./routes/telegram";
 import paymentRoutes from "./routes/payments";
-import  { initializeBot } from './services/telegramBot';
-
-
-
+import { initializeBot } from "./services/telegramBot";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -34,10 +31,11 @@ app.use("/api/telegram", telegramRoutes);
 app.use("/api/payments", paymentRoutes);
 
 // Initialize Telegram bot
-
+if (process.env.NODE_ENV !== 'test') {
+  initializeBot();
+}
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
- initializeBot();
   startCronJobs();
 });

@@ -1,20 +1,81 @@
-import { console } from 'inspector';
 import { createInvoice, getInvoiceStatus, type InvoiceData } from './plisioService';
 import { v4 as uuidv4 } from 'uuid';
+import { db } from '../db';
+import { eq } from 'drizzle-orm';
+import { payments as paymentsTable } from '../db/schema';
+import type { InferInsertModel } from 'drizzle-orm';
 
-// In-memory store for demo purposes
-// In production, use a database like MongoDB or PostgreSQL
-const payments = new Map<string, PaymentData>();
+// Helper type for database row
+interface DbPaymentRow {
+  id: string;
+  userId: number;
+  shopId: string;
+  type: string;
+  status: string;
+  orderId: string;
+  amount: string;
+  currency: string;
+  invoiceId: string | null;
+  invoiceUrl: string | null;
+  txUrls: string[] | null;
+  voucherDetails: Array<{
+    id: string;
+    cardType: string;
+    cardPin: string;
+    cardNumber: string;
+    validTill: string;
+    amount: number;
+  }> | null;
+  metadata: any;
+  createdAt: Date;
+  updatedAt: Date | null;
+}
+
+// Helper function to convert database row to PaymentData
+const mapDbPaymentToPaymentData = (row: DbPaymentRow): PaymentData => ({
+  id: row.id,
+  userId: row.userId,
+  shopId: row.shopId,
+  type: row.type,
+  status: row.status,
+  txUrls: row.txUrls || [],
+  orderId: row.orderId,
+  amount: parseFloat(row.amount),
+  invoiceId: row.invoiceId || undefined,
+  invoiceUrl: row.invoiceUrl || undefined,
+  currency: row.currency || 'USD',
+  voucherDetails: row.voucherDetails || undefined,
+  metadata: row.metadata || {},
+  createdAt: new Date(row.createdAt),
+  updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date()
+});
+
+export interface VoucherDetail {
+  id: string;
+  cardType: string;
+  cardPin: string;
+  cardNumber: string;
+  validTill: string;
+  amount: number;
+}
 
 export interface PaymentData {
-  orderId: string;
+  // From operations data
   userId: number;
+  shopId: string;
+  type: string;
+  status: 'pending' | 'completed' | 'error' | 'new' | 'expired' | 'mismatch' | 'cancelled' | 'failed' | string;
+  txUrls: string[];
+  id: string;
+  
+  // Additional fields used in the codebase
+  orderId: string;
   amount: number;
-  currency: string;
-  status: 'pending' | 'completed' | 'expired' | 'cancelled' | 'failed';
   invoiceId?: string;
   invoiceUrl?: string;
-  createdAt: Date;
+  currency?: string;
+  voucherDetails?: VoucherDetail[];
+  createdAt?: Date;
   updatedAt?: Date;
   metadata?: Record<string, any>;
 }
@@ -41,26 +102,12 @@ export const createPayment = async (
   try {
     const orderId = `order_${uuidv4()}`;
     const appUrl = process.env.APP_URL || 'http://localhost:4000';
-    
-    // Create payment record
-    const paymentData: PaymentData = {
-      orderId,
-      userId,
-      amount,
-      currency,
-      status: 'pending',
-      createdAt: new Date(),
-      metadata: {
-        ...metadata,
-        source: 'gift-card-store',
-      },
-    };
-
+console.log(amount);
     // Create Plisio invoice with required fields only
     // All other fields are now handled in plisioService
     const invoice = await createInvoice({
       order_number: orderId,
-    
+      amount: amount,
       // All other fields are now hardcoded in plisioService
     });
 
@@ -75,21 +122,48 @@ export const createPayment = async (
     
     const invoiceData = invoice.data;
 
-    // Update payment data with invoice info
+    // Create payment record with invoice info
     const payment: PaymentData = {
-      ...paymentData,
-      invoiceId: invoiceData.txn_id, // Using txn_id from response
-      invoiceUrl: invoiceData.invoice_url,
-      amount: parseFloat(invoiceData.invoice_total_sum) || amount, // Use the actual amount from Plisio if available
+      // Required fields from operations data
+      id: orderId, // Using orderId as id since it's unique
+      shopId: 'gift-card-shop', // Default shop ID
+      type: 'invoice', // Default type
+      txUrls: [], // Initialize empty array for transaction URLs
+      
+      // Existing fields
+      orderId: orderId,
+      userId: userId,
+      amount: parseFloat(invoiceData.invoice_total_sum) || amount,
       status: 'pending',
+      invoiceId: invoiceData.txn_id,
+      invoiceUrl: invoiceData.invoice_url,
+      currency: currency || 'USD', // Default currency
+      createdAt: new Date(),
       updatedAt: new Date(),
+      metadata: {
+        ...metadata,
+        source: 'gift-card-store',
+      },
     };
 
-    // Save the payment with the updated amount from Plisio
-    paymentData.amount = payment.amount;
-
-    // Save payment to in-memory store (replace with database in production)
-    payments.set(orderId, payment);
+    // Save payment to database
+    await db.insert(paymentsTable).values({
+      id: payment.id,
+      userId: payment.userId,
+      shopId: payment.shopId,
+      type: payment.type,
+      status: payment.status,
+      orderId: payment.orderId,
+      amount: payment.amount.toString(),
+      currency: payment.currency || 'USD',
+      invoiceId: payment.invoiceId || null,
+      invoiceUrl: payment.invoiceUrl || null,
+      txUrls: payment.txUrls || null,
+      voucherDetails: payment.voucherDetails || null,
+      metadata: payment.metadata || null,
+      createdAt: payment.createdAt,
+      updatedAt: payment.updatedAt || new Date()
+    });
     
     // Return the response in the format matching Plisio's response
     return {
@@ -111,42 +185,171 @@ export const createPayment = async (
   }
 };
 
-export const getPaymentStatus = async (orderId: string) => {
+import axios from 'axios';
+
+interface PlisioOperation {
+  txn_id: string;
+  status: string;
+  invoice_url: string;
+  invoice_total_sum: string;
+  // Add other fields as needed
+}
+
+interface PlisioResponse {
+  status: string;
+  data: {
+    operations: PlisioOperation[];
+  };
+}
+
+const getPaymentStatusFromPlisio = async (txnId: string): Promise<{ success: boolean; status?: string; error?: string }> => {
   try {
-    const payment = payments.get(orderId);
-    if (!payment) {
+    const apiKey = process.env.PLISIO_API_KEY;
+    if (!apiKey) {
+      throw new Error('PLISIO_API_KEY is not set in environment variables');
+    }
+
+    const response = await axios.get<PlisioResponse>(
+      'https://api.plisio.net/api/v1/operations',
+      {
+        params: {
+          api_key: apiKey,
+        },
+      }
+    );
+
+    if (response.data.status !== 'success') {
+      throw new Error('Failed to fetch operations from Plisio');
+    }
+
+    const operation = response.data.data.operations.find(
+      (op: PlisioOperation) => op.txn_id === txnId
+    );
+
+    if (!operation) {
       return {
         success: false,
-        error: 'Payment not found',
+        error: 'Transaction not found in Plisio',
       };
     }
 
-    // In a real app, you would check the status in your database
-    // For demo, we'll check with Plisio if we have an invoice ID
-    if (payment.invoiceId) {
-      const invoice = await getInvoiceStatus(payment.invoiceId);
-      if (invoice.success && invoice.data) {
-        // Update payment status based on Plisio status
-        payment.status = invoice.data.status as PaymentData['status'] || payment.status;
-        payment.updatedAt = new Date();
-        // In a real application, save to database here
-      }
-    }
-    
     return {
       success: true,
-      data: payment,
+      status: operation.status,
     };
   } catch (error: any) {
-    console.error('Error getting payment status:', error);
+    console.error('Error fetching payment status from Plisio:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get payment status',
+      error: error.message || 'Failed to fetch payment status',
     };
   }
 };
 
-export const handlePaymentCallback = async (data: any) => {
+export const getPaymentStatus = async (orderId: string) => {
+  // Get payment from database first
+  const [paymentRow] = await db
+    .select()
+    .from(paymentsTable)
+    .where(eq(paymentsTable.invoiceId, orderId))
+    .limit(1);
+  
+  if (!paymentRow) {
+    return {
+      success: false,
+      error: 'Payment not found',
+    };
+  }
+  
+  // Store the current payment data
+  const currentPayment = mapDbPaymentToPaymentData(paymentRow);
+  
+  try {
+    console.log('Checking payment status for order:', orderId);
+
+    // First, try to get the latest status from Plisio
+    const plisioApiKey = process.env.PLISIO_API_KEY;
+    if (!plisioApiKey) {
+      throw new Error('PLISIO_API_KEY is not set');
+    }
+
+    // Fetch the latest operations from Plisio
+    const response = await axios.get<PlisioResponse>(
+      'https://api.plisio.net/api/v1/operations',
+      {
+        params: {
+          api_key: plisioApiKey,
+          order_id: orderId,
+          limit: 1,
+        },
+      }
+    );
+
+    // Process the response
+    if (response.data.status === 'success' && response.data.data.operations.length > 0) {
+      const latestOperation = response.data.data.operations[0];
+      
+      // Update payment with the latest status
+      const updateData: any = {
+        status: latestOperation.status,
+        updatedAt: new Date(),
+      };
+
+      // If payment is completed, process vouchers if not already done
+      if (latestOperation.status === 'completed' && !currentPayment.voucherDetails) {
+        // Add your voucher generation logic here
+        // const vouchers = await generateVouchers(payment);
+        // updateData.voucherDetails = vouchers;
+      }
+
+      // Update the payment in the database
+      await db
+        .update(paymentsTable)
+        .set(updateData)
+        .where(eq(paymentsTable.id, currentPayment.id));
+
+      // Return the updated payment
+      const updatedPayment = {
+        ...currentPayment,
+        ...updateData,
+      };
+
+      return {
+        success: true,
+        data: updatedPayment,
+      };
+    }
+
+    // If no operations found, use the current payment data
+    return {
+      success: true,
+      data: currentPayment,
+    };
+
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error getting payment status:', errorMessage);
+    
+    // In case of error, still return the existing payment data
+    return {
+      success: true,
+      data: currentPayment,
+    };
+
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
+};
+
+interface PaymentCallbackData {
+  order_number: string;
+  status: string;
+  [key: string]: any;
+}
+
+export const handlePaymentCallback = async (data: PaymentCallbackData) => {
   try {
     // Verify the callback data
     const { order_number, status } = data;
@@ -156,16 +359,29 @@ export const handlePaymentCallback = async (data: any) => {
       return { success: false, error: 'Invalid callback data' };
     }
     
-    // In a real app, you would:
-    // 1. Verify the callback signature
-    // 2. Update the payment status in your database
-    const payment = payments.get(order_number);
-    if (!payment) {
-      console.error(`Payment not found for order: ${order_number}`);
+    // Find the payment in our database
+    const [paymentRow] = await db
+      .select()
+      .from(paymentsTable)
+      .where(eq(paymentsTable.orderId, order_number))
+      .limit(1);
+    
+    if (!paymentRow) {
+      console.error('Payment not found for order:', order_number);
       return { success: false, error: 'Payment not found' };
     }
     
-    // Update payment status based on Plisio status
+    const payment = mapDbPaymentToPaymentData(paymentRow);
+
+    // Update payment status in database
+    await db
+      .update(paymentsTable)
+      .set({
+        status: (status || 'failed').toLowerCase() as PaymentData['status'],
+        updatedAt: new Date()
+      })
+      .where(eq(paymentsTable.id, payment.id));
+
     payment.status = (status || 'failed').toLowerCase() as PaymentData['status'];
     payment.updatedAt = new Date();
     

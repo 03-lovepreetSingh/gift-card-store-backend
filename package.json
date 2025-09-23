@@ -24,9 +24,10 @@
   "dependencies": {
     "@types/cors": "^2.8.19",
     "@types/node-telegram-bot-api": "^0.64.11",
-    "@types/uuid": "^8.3.4",
+    "@types/uuid": "^10.0.0",
     "axios": "^1.11.0",
     "cors": "^2.8.5",
+    "currency-converter-lt": "^2.0.1",
     "dotenv": "^17.2.2",
     "drizzle-orm": "^0.44.5",
     "express": "^5.1.0",
@@ -34,12 +35,13 @@
     "node-telegram-bot-api": "^0.66.0",
     "pg": "^8.16.3",
     "pg-pool": "^3.10.1",
-    "uuid": "^8.3.2"
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/axios": "^0.9.36",
     "@types/express": "^5.0.3",
     "@types/node": "^24.3.1",
+    "@types/pg": "^8.15.5",
     "drizzle-kit": "^0.31.4",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.2"
