@@ -443,22 +443,33 @@ const initializeBot = () => {
         }
         
         const { minAmount, maxAmount } = brand.amountRestrictions;
+        const messageText = `💳 *Enter Amount*\n\n` +
+          `Please enter the amount for ${brand.title} (between ₹${minAmount} and ₹${maxAmount}):`;
         
-        // Ask user to enter amount
-        await bot.editMessageText(
-          `💳 *Enter Amount*\n\n` +
-          `Please enter the amount for ${brand.title} (between ₹${minAmount} and ₹${maxAmount}):`,
-          {
+        const keyboard = {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '❌ Cancel', callback_data: 'cancel_amount' }]
+            ]
+          }
+        };
+        
+        try {
+          // First try to edit the existing message
+          await bot.editMessageText(messageText, {
             chat_id: chatId,
             message_id: messageId,
             parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '❌ Cancel', callback_data: 'cancel_amount' }]
-              ]
-            }
-          }
-        );
+            ...keyboard
+          });
+        } catch (editError) {
+          console.log('Could not edit message, sending new one:', editError.message);
+          // If editing fails (e.g., it's a photo message), send a new message
+          await bot.sendMessage(chatId, messageText, {
+            parse_mode: 'Markdown',
+            ...keyboard
+          });
+        }
         
       } catch (error) {
         console.error('Error in buy flow:', error);
