@@ -3,19 +3,66 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db';
 import { eq } from 'drizzle-orm';
 import { payments as paymentsTable } from '../db/schema';
-import type { InferInsertModel } from 'drizzle-orm';
+import axios from 'axios';
+
+const PLISIO_BASE_URL = 'https://plisio.net/api/v1';
+
+// Type for the raw payment row from the database
+interface RawPaymentRow {
+  id: string;
+  user_id: string; // Changed to match database column name and type (uuid)
+  shop_id: string;
+  type: string;
+  status: string;
+  order_id: string;
+  amount: string | number;
+  inr_amount: string | number;
+  currency: string;
+  invoice_id: string | null;
+  invoice_url: string | null;
+  tx_urls: string[] | null;
+  voucher_details: Array<{
+    id: string;
+    cardType: string;
+    cardPin: string;
+    cardNumber: string;
+    validTill: string;
+    amount: number | string;
+  }> | null;
+  metadata: Record<string, any> | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+  
+  // Add camelCase aliases for compatibility
+  userId?: string;
+  shopId?: string;
+  orderId?: string;
+  invoiceId?: string | null;
+  invoiceUrl?: string | null;
+  txUrls?: string[] | null;
+  voucherDetails?: Array<{
+    id: string;
+    cardType: string;
+    cardPin: string;
+    cardNumber: string;
+    validTill: string;
+    amount: number | string;
+  }> | null;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+}
 
 // Helper type for database row
-// Helper type that matches the database row structure
+// Matches the database schema
 type DbPaymentRow = {
-  id: string;
-  userId: number;
+  id: string; // uuid
+  userId: string; // uuid (changed from number to string to match database)
   shopId: string;
   type: string;
   status: string;
   orderId: string;
-  amount: string;
-  inr_amount: string;
+  amount: string; // numeric as string
+  inr_amount: string; // numeric as string
   currency: string;
   invoiceId: string | null;
   invoiceUrl: string | null;
@@ -28,9 +75,9 @@ type DbPaymentRow = {
     validTill: string;
     amount: number;
   }> | null;
-  metadata: any;
+  metadata: Record<string, any> | null;
   createdAt: Date;
-  updatedAt: Date | null;
+  updatedAt: Date;
 };
 
 // Helper function to convert database row to PaymentData
@@ -68,7 +115,7 @@ export interface VoucherDetail {
 
 export interface PaymentData {
   // From operations data
-  userId: number;
+  userId: string; // Changed from number to string to match database (uuid)
   shopId: string;
   type: string;
   status: 'pending' | 'completed' | 'error' | 'new' | 'expired' | 'mismatch' | 'cancelled' | 'failed' | string;
@@ -95,13 +142,13 @@ export interface CreatePaymentResponse {
     invoice_url: string;
     invoice_total_sum: string;
     order_id: string;
-    user_id: number;
+    user_id: string; // Changed from number to string to match UUID type
   };
   error?: string;
 }
 
 export const createPayment = async (
-  userId: number, 
+  userId: string, // Changed from number to string to match database (uuid)
   amount: number, 
   inrAmount: number,
   currency: string = 'ETH',
@@ -111,11 +158,11 @@ export const createPayment = async (
   try {
     const orderId = uuidv4(); // Generate raw UUID without prefix
     const appUrl = process.env.APP_URL || 'http://localhost:4000';
-console.log(amount);
+    
     // Create Plisio invoice with required fields only
     // All other fields are now handled in plisioService
     const invoice = await createInvoice({
-order_number: orderId,
+      order_number: orderId, // Use raw UUID for Plisio
       amount: amount,
       // All other fields are now hardcoded in plisioService
     });
@@ -182,10 +229,10 @@ console.log("invoice", invoice);
     return {
       status: 'success',
       data: {
-        txn_id: payment.invoiceId || '',
+txn_id: payment.invoiceId || '',
         invoice_url: payment.invoiceUrl || '',
         invoice_total_sum: payment.amount.toString(),
-        order_id: orderId,
+        order_id: orderId, // Already a raw UUID
         user_id: userId
       }
     };
@@ -198,14 +245,12 @@ console.log("invoice", invoice);
   }
 };
 
-import axios from 'axios';
-
 interface PlisioOperation {
   txn_id: string;
   status: string;
   invoice_url: string;
   invoice_total_sum: string;
-  // Add other fields as needed
+  [key: string]: any; // Allow for additional properties
 }
 
 interface PlisioResponse {
@@ -213,6 +258,7 @@ interface PlisioResponse {
   data: {
     operations: PlisioOperation[];
   };
+  [key: string]: any; // Allow for additional properties
 }
 
 const getPaymentStatusFromPlisio = async (txnId: string): Promise<{ success: boolean; status?: string; error?: string }> => {
@@ -259,15 +305,34 @@ const getPaymentStatusFromPlisio = async (txnId: string): Promise<{ success: boo
   }
 };
 
-export const getPaymentStatus = async (orderId: string) => {
+interface GetPaymentStatusResponse {
+  success: boolean;
+  data?: PaymentData;
+  error?: string;
+}
+
+export const getPaymentStatus = async (orderId: string): Promise<GetPaymentStatusResponse> => {
   try {
-    // Get payment from database first
-    const rawPaymentRow = await db
+    // Remove 'order_' prefix if it exists
+    const cleanOrderId = orderId.startsWith('order_') ? orderId.substring(6) : orderId;
+    
+    // Try to find by orderId first
+    let rawPaymentRow = await db
       .select()
       .from(paymentsTable)
-      .where(eq(paymentsTable.invoiceId, orderId))
+      .where(eq(paymentsTable.orderId, cleanOrderId))
       .limit(1)
       .then(rows => rows[0]);
+
+    // If not found by orderId, try by invoiceId
+    if (!rawPaymentRow) {
+      rawPaymentRow = await db
+        .select()
+        .from(paymentsTable)
+        .where(eq(paymentsTable.invoiceId, cleanOrderId))
+        .limit(1)
+        .then(rows => rows[0]);
+    }
       
     if (!rawPaymentRow) {
       return {
@@ -276,23 +341,76 @@ export const getPaymentStatus = async (orderId: string) => {
       };
     }
     
-    // The database returns numeric fields as strings, so we need to convert them
-    // to the correct types expected by DbPaymentRow
-    const paymentRow: DbPaymentRow = {
-      ...rawPaymentRow,
-      // Ensure inr_amount is a string as per DbPaymentRow type
-      inr_amount: rawPaymentRow.inr_amount.toString(),
-      // amount is already a string in the database
-      amount: rawPaymentRow.amount.toString(),
-      // Handle voucher details if they exist
-      voucherDetails: rawPaymentRow.voucherDetails ? rawPaymentRow.voucherDetails.map(v => ({
-        ...v,
-        amount: Number(v.amount) // Convert voucher amount to number
-      })) : null
+    // Type assertion for rawPaymentRow to handle database response
+    const rawRow = rawPaymentRow as unknown as RawPaymentRow;
+    
+    // Helper function to get the value from either snake_case or camelCase property
+    const getValue = <T>(obj: any, keys: string[], defaultValue: T): T => {
+      for (const key of keys) {
+        if (obj[key] !== undefined) return obj[key];
+      }
+      return defaultValue;
     };
     
+    // Convert the raw payment row to DbPaymentRow with proper types
+    const paymentRow: DbPaymentRow = {
+      id: String(rawRow.id || ''),
+      userId: String(getValue(rawRow, ['user_id', 'userId'], '')), // Handle both user_id and userId
+      shopId: String(getValue(rawRow, ['shop_id', 'shopId'], '')),
+      type: String(rawRow.type || ''),
+      status: String(rawRow.status || ''),
+      orderId: String(getValue(rawRow, ['order_id', 'orderId'], '')),
+      amount: String(rawRow.amount || '0'),
+      inr_amount: String(rawRow.inr_amount || '0'),
+      currency: String(rawRow.currency || 'USD'),
+      invoiceId: getValue(rawRow, ['invoice_id', 'invoiceId'], null) ? String(getValue(rawRow, ['invoice_id', 'invoiceId'], '')) : null,
+      invoiceUrl: getValue(rawRow, ['invoice_url', 'invoiceUrl'], null) ? String(getValue(rawRow, ['invoice_url', 'invoiceUrl'], '')) : null,
+      txUrls: Array.isArray(getValue(rawRow, ['tx_urls', 'txUrls'], null)) 
+        ? (getValue(rawRow, ['tx_urls', 'txUrls'], []) as any[]).map(String) 
+        : [],
+      voucherDetails: getValue(rawRow, ['voucher_details', 'voucherDetails'], null) 
+        ? (getValue(rawRow, ['voucher_details', 'voucherDetails'], []) as any[]).map(v => ({
+            id: String(v.id || ''),
+            cardType: String(v.cardType || ''),
+            cardPin: String(v.cardPin || ''),
+            cardNumber: String(v.cardNumber || ''),
+            validTill: String(v.validTill || ''),
+            amount: typeof v.amount === 'number' ? v.amount : Number(v.amount) || 0
+          }))
+        : null,
+      metadata: getValue(rawRow, ['metadata'], null) || {},
+      createdAt: getValue(rawRow, ['created_at', 'createdAt'], null) 
+        ? new Date(getValue(rawRow, ['created_at', 'createdAt'], new Date())) 
+        : new Date(),
+      updatedAt: getValue(rawRow, ['updated_at', 'updatedAt'], null) 
+        ? new Date(getValue(rawRow, ['updated_at', 'updatedAt'], new Date()))
+        : new Date()
+    };
+    
+    // Ensure metadata is properly typed
+    const safeMetadata = paymentRow.metadata && typeof paymentRow.metadata === 'object' 
+      ? paymentRow.metadata as Record<string, any> 
+      : {};
+
     // Map the database row to our application's PaymentData type
-    const currentPayment = mapDbPaymentToPaymentData(paymentRow);
+    const currentPayment: PaymentData = {
+      id: paymentRow.id,
+      userId: paymentRow.userId,
+      shopId: paymentRow.shopId,
+      type: paymentRow.type,
+      status: paymentRow.status as PaymentData['status'],
+      txUrls: paymentRow.txUrls || [],
+      orderId: paymentRow.orderId,
+      inrAmount: parseFloat(paymentRow.inr_amount) || 0,
+      amount: parseFloat(paymentRow.amount) || 0,
+      invoiceId: paymentRow.invoiceId || undefined,
+      invoiceUrl: paymentRow.invoiceUrl || undefined,
+      currency: paymentRow.currency,
+      voucherDetails: paymentRow.voucherDetails || undefined,
+      metadata: safeMetadata,
+      createdAt: paymentRow.createdAt,
+      updatedAt: paymentRow.updatedAt
+    };
   
     console.log('Checking payment status for order:', orderId);
 
@@ -303,21 +421,20 @@ export const getPaymentStatus = async (orderId: string) => {
     }
 
     try {
-      // Fetch the latest operations from Plisio
-      const response = await axios.get<PlisioResponse>(
-        'https://api.plisio.net/api/v1/operations',
-        {
+      // Find payment by order_id in Plisio (use clean order ID without prefix)
+      const plisioResponse = await axios.get<PlisioResponse>(
+        `${PLISIO_BASE_URL}/operations`, {
           params: {
             api_key: plisioApiKey,
-            order_id: orderId,
+            order_id: cleanOrderId, // Use clean order ID
             limit: 1,
           },
         }
       );
 
       // Process the response
-      if (response.data.status === 'success' && response.data.data.operations.length > 0) {
-        const latestOperation = response.data.data.operations[0];
+      if (plisioResponse.data.status === 'success' && plisioResponse.data.data.operations.length > 0) {
+        const latestOperation = plisioResponse.data.data.operations[0];
         
         // Update payment with the latest status
         const updateData: any = {
@@ -388,25 +505,72 @@ export const handlePaymentCallback = async (data: PaymentCallbackData) => {
     const { order_number, status } = data;
     
     if (!order_number) {
-      console.error('Invalid callback data: missing order_number');
-      return { success: false, error: 'Invalid callback data' };
+      console.error('No order number provided in callback');
+      return { success: false, error: 'No order number provided' };
     }
     
-    // Find the payment in our database
-    // Remove 'order_' prefix if it exists when querying the database
     const cleanOrderNumber = order_number.startsWith('order_') ? order_number.substring(6) : order_number;
-    const [paymentRow] = await db
+    
+    // Try to find payment by orderId first
+    let paymentRow = await db
       .select()
       .from(paymentsTable)
       .where(eq(paymentsTable.orderId, cleanOrderNumber))
-      .limit(1);
+      .limit(1)
+      .then(rows => rows[0]);
+      
+    // If not found by orderId, try by invoiceId
+    if (!paymentRow) {
+      paymentRow = await db
+        .select()
+        .from(paymentsTable)
+        .where(eq(paymentsTable.invoiceId, cleanOrderNumber))
+        .limit(1)
+        .then(rows => rows[0]);
+    }
     
     if (!paymentRow) {
-      console.error('Payment not found for order:', order_number);
+      console.error(`Payment with order number ${order_number} (clean: ${cleanOrderNumber}) not found`);
       return { success: false, error: 'Payment not found' };
     }
     
-    const payment = mapDbPaymentToPaymentData(paymentRow);
+    // Helper function to get value from either snake_case or camelCase property
+    const getValue = <T>(obj: any, keys: string[], defaultValue: T): T => {
+      for (const key of keys) {
+        if (obj[key] !== undefined) return obj[key];
+      }
+      return defaultValue;
+    };
+
+    // Convert the raw payment row to PaymentData with proper type handling
+    const payment: PaymentData = {
+      id: String(paymentRow.id || ''),
+      userId: String(getValue(paymentRow, ['user_id', 'userId'], '')),
+      shopId: String(getValue(paymentRow, ['shop_id', 'shopId'], '')),
+      type: String(paymentRow.type || ''),
+      status: String(paymentRow.status || '') as PaymentData['status'],
+      orderId: String(getValue(paymentRow, ['order_id', 'orderId'], '')),
+      amount: typeof paymentRow.amount === 'number' ? paymentRow.amount : parseFloat(paymentRow.amount as string) || 0,
+      inrAmount: typeof paymentRow.inr_amount === 'number' 
+        ? paymentRow.inr_amount 
+        : parseFloat(getValue(paymentRow, ['inr_amount', 'inrAmount'], '0') as string) || 0,
+      currency: String(paymentRow.currency || 'USD'),
+      invoiceId: getValue(paymentRow, ['invoice_id', 'invoiceId'], null) || undefined,
+      invoiceUrl: getValue(paymentRow, ['invoice_url', 'invoiceUrl'], null) || undefined,
+      txUrls: Array.isArray(getValue(paymentRow, ['tx_urls', 'txUrls'], null))
+        ? getValue(paymentRow, ['tx_urls', 'txUrls'], []) as string[]
+        : [],
+      voucherDetails: getValue(paymentRow, ['voucher_details', 'voucherDetails'], null) || undefined,
+      metadata: getValue(paymentRow, ['metadata'], null) && typeof getValue(paymentRow, ['metadata'], null) === 'object'
+        ? getValue(paymentRow, ['metadata'], {}) as Record<string, any>
+        : {},
+      createdAt: getValue(paymentRow, ['created_at', 'createdAt'], null)
+        ? new Date(getValue(paymentRow, ['created_at', 'createdAt'], new Date()) as string | Date)
+        : new Date(),
+      updatedAt: getValue(paymentRow, ['updated_at', 'updatedAt'], null)
+        ? new Date(getValue(paymentRow, ['updated_at', 'updatedAt'], new Date()) as string | Date)
+        : new Date()
+    };
 
     // Update payment status in database
     await db
@@ -417,15 +581,16 @@ export const handlePaymentCallback = async (data: PaymentCallbackData) => {
       })
       .where(eq(paymentsTable.id, payment.id));
 
+    // Update the payment object with the new status and timestamp
     payment.status = (status || 'failed').toLowerCase() as PaymentData['status'];
     payment.updatedAt = new Date();
     
-    // In a real application, save to database here
     console.log(`Payment ${order_number} status updated to: ${payment.status}`);
     
     return { success: true, data: payment };
-  } catch (error: any) {
-    console.error('Error handling payment callback:', error);
-    return { success: false, error: error.message || 'Failed to process callback' };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error handling payment callback:', errorMessage);
+    return { success: false, error: errorMessage };
   }
 };
