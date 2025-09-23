@@ -304,17 +304,6 @@ const initializeBot = () => {
             // Send the image with the detailed caption
             if (brand.iconImageUrl) {
               try {
-                await bot.sendPhoto(chatId, brand.iconImageUrl, {
-                  caption: caption,
-                  parse_mode: 'Markdown'
-                });
-                // No need for a separate message if we have an image
-                return;
-              } catch (error) {
-                console.error('Error sending brand image:', error);
-                // If image fails to send, fall back to text message
-                let message = caption;
-                
                 // Create keyboard with action buttons
                 const keyboard = {
                   reply_markup: {
@@ -325,6 +314,19 @@ const initializeBot = () => {
                   }
                 };
                 
+                await bot.sendPhoto(chatId, brand.iconImageUrl, {
+                  caption: caption,
+                  parse_mode: 'Markdown',
+                  ...keyboard
+                });
+                // No need for a separate message if we have an image
+                return;
+              } catch (error) {
+                console.error('Error sending brand image:', error);
+                // If image fails to send, fall back to text message
+                let message = caption;
+                
+              
                 // Update the message with brand details
                 await bot.editMessageText(message, {
                   chat_id: chatId,
