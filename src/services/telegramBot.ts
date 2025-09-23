@@ -363,14 +363,14 @@ const initializeBot = () => {
             const user = callbackQuery.from;
             const amount = payment.amount || 0;
             
-            // Prepare the order data
+            // Prepare the order data according to the expected format
             const orderData = {
               productId: userSessions[chatId]?.currentBrandId || '',
-              referenceId: `REF-${Date.now()}`,
-              amount: amount,
+              referenceId: `TEL-${Date.now()}-${user.id}`, // Unique reference ID
+              amount: amount.toString(), // Ensure amount is a string
               denominationDetails: [
                 {
-                  denomination: amount,
+                  denomination: amount.toString(), // Ensure denomination is a string
                   quantity: 1
                 }
               ],
@@ -384,7 +384,9 @@ const initializeBot = () => {
                 phoneNumber: user.id.toString()
               }
             };
-
+            
+            console.log('Order Data:', JSON.stringify(orderData, null, 2));
+            
             // Make the POST request to create the order
             const response = await axios.post<{
               id: string;
@@ -392,15 +394,15 @@ const initializeBot = () => {
               status: string;
               vouchers: Array<{
                 id: string;
-                cardType: string;
-                cardPin: string;
-                cardNumber: string;
+                cardType: 'PIN_SECURED' | 'CARD_NO_AND_PIN';
+                cardPin?: string;
+                cardNumber?: string;
                 validTill: string;
-                amount: number;
+                amount: string;
               }>;
               failureReason: string | null;
             }>(
-              'https://gift-card-store-backend-1.onrender.com/order',
+              'https://gift-card-store-backend-1.onrender.com/api/orders',
               orderData,
               {
                 headers: {
