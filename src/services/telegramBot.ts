@@ -298,6 +298,7 @@ const initializeBot = () => {
     try {
       const brandId = match?.[1]?.trim();
       console.log('Brand ID:', brandId);
+      console.log('Match:', match);
       if (!brandId) {
         await sendMessage(chatId, '❌ Please provide a brand ID. Usage: `/brand <id>`', {
           parse_mode: 'Markdown'
