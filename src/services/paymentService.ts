@@ -235,8 +235,8 @@ export const createPayment = async (
     return {
       status: 'success',
       data: {
-        txn_id: paymentRecord.invoice_id || '',
-        invoice_url: paymentRecord.invoice_url || '',
+        txn_id: invoice.data.txn_id,
+        invoice_url: invoice.data.invoice_url ,
         invoice_total_sum: paymentRecord.amount,
         order_id: orderId,
         user_id: validUserId
