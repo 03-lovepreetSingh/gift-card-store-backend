@@ -387,7 +387,11 @@ const initializeBot = () => {
       
       // Handle payment status callbacks
       if (data.startsWith('payment_status:')) {
-        const orderId = data.split(':')[1];
+        let orderId = data.split(':')[1];
+        // Remove 'order_' prefix if it exists
+        if (orderId.startsWith('order_')) {
+          orderId = orderId.substring(6);
+        }
         const paymentResponse = await getPaymentStatus(orderId);
         
         if (paymentResponse.success && paymentResponse.data) {
@@ -556,18 +560,22 @@ const initializeBot = () => {
 
     // Handle buy button click
     if (data.startsWith('buy_')) {
-      const brandId = data.split('_')[1];
+      let orderId = data.split('_')[1];
+      // Remove 'order_' prefix if it exists
+      if (orderId.startsWith('order_')) {
+        orderId = orderId.substring(6);
+      }
       
       try {
         // Store the brand ID in the user's session
         userSessions[chatId] = {
           ...userSessions[chatId],
-          currentBrandId: brandId,
+          currentBrandId: orderId,
           awaitingAmount: true
         };
         
         // Get brand details to show amount range
-        const response = await axios.get<Brand>(`${API_BASE_URL}/brand/${brandId}`);
+        const response = await axios.get<Brand>(`${API_BASE_URL}/brand/${orderId}`);
         const brand = response.data;
         
         if (!brand || !brand.amountRestrictions) {
@@ -747,7 +755,7 @@ const initializeBot = () => {
           }
           
           const { data: payment } = paymentResponse;
-          
+          console.log("payment", payment);
           // Show payment link
           const paymentMessage = `💳 *Payment Request*\n\n` +
             `Brand: *${brand.title}*\n` +
@@ -955,14 +963,14 @@ const initializeBot = () => {
       }
       
       const message = `💳 *Payment Status*\n\n` +
-        `Order ID: *${payment.orderId || orderId}*\n` +
+        `Order ID: *${orderId}*\n` +
         `Amount: *${payment.amount || 'N/A'} USDT*\n` +
         `Status: ${statusEmoji} *${statusText}*\n\n${additionalMessage}`;
       
       // Prepare reply markup based on status
       const replyMarkup = {
         inline_keyboard: [
-          [{ text: '🔄 Refresh Status', callback_data: `payment_status:${orderId}` }],
+[{ text: '🔄 Refresh Status', callback_data: `payment_status:${orderId}` }],
           [{ text: '📞 Contact Support', url: 'https://t.me/your_support_username' }]
         ]
       };
@@ -1006,7 +1014,7 @@ const initializeBot = () => {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: '🔄 Try Again', callback_data: `payment_status:${orderId}` }],
+[{ text: '🔄 Try Again', callback_data: `payment_status:${orderId}` }],
                 [{ text: '📞 Contact Support', url: 'https://t.me/your_support_username' }]
               ]
             }

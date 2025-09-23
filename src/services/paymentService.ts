@@ -6,15 +6,16 @@ import { payments as paymentsTable } from '../db/schema';
 import type { InferInsertModel } from 'drizzle-orm';
 
 // Helper type for database row
-interface DbPaymentRow {
+// Helper type that matches the database row structure
+type DbPaymentRow = {
   id: string;
   userId: number;
   shopId: string;
   type: string;
   status: string;
   orderId: string;
-  amount: string;  // Stored as string to maintain precision
-  inrAmount: string;  // Stored as string to maintain precision
+  amount: string;
+  inr_amount: string;
   currency: string;
   invoiceId: string | null;
   invoiceUrl: string | null;
@@ -30,27 +31,31 @@ interface DbPaymentRow {
   metadata: any;
   createdAt: Date;
   updatedAt: Date | null;
-}
+};
 
 // Helper function to convert database row to PaymentData
-const mapDbPaymentToPaymentData = (row: DbPaymentRow): PaymentData => ({
-  id: row.id,
-  userId: row.userId,
-  shopId: row.shopId,
-  type: row.type,
-  status: row.status,
-  txUrls: row.txUrls || [],
-  orderId: row.orderId,
-  inrAmount: parseFloat(row.inrAmount),
-  amount: parseFloat(row.amount),
-  invoiceId: row.invoiceId || undefined,
-  invoiceUrl: row.invoiceUrl || undefined,
-  currency: row.currency || 'USD',
-  voucherDetails: row.voucherDetails || undefined,
-  metadata: row.metadata || {},
-  createdAt: new Date(row.createdAt),
-  updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date()
-});
+const mapDbPaymentToPaymentData = (row: DbPaymentRow): PaymentData => {
+  // Convert database row to PaymentData format
+  return {
+    id: row.id,
+    userId: row.userId,
+    shopId: row.shopId,
+    type: row.type,
+    status: row.status,
+    txUrls: row.txUrls || [],
+    orderId: row.orderId,
+    // Convert stored string to number for the application
+    inrAmount: parseFloat(row.inr_amount || '0'),
+    amount: parseFloat(row.amount || '0'),
+    invoiceId: row.invoiceId || undefined,
+    invoiceUrl: row.invoiceUrl || undefined,
+    currency: row.currency || 'USD',
+    voucherDetails: row.voucherDetails || undefined,
+    metadata: row.metadata || {},
+    createdAt: new Date(row.createdAt),
+    updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date()
+  };
+};
 
 export interface VoucherDetail {
   id: string;
@@ -72,7 +77,7 @@ export interface PaymentData {
   
   // Additional fields used in the codebase
   orderId: string;
-  inrAmount: number;
+  inrAmount: number;  // This is the application-facing field (camelCase)
   amount: number;
   invoiceId?: string;
   invoiceUrl?: string;
@@ -104,17 +109,17 @@ export const createPayment = async (
   metadata: Record<string, any> = {}
 ): Promise<CreatePaymentResponse> => {
   try {
-    const orderId = `order_${uuidv4()}`;
+    const orderId = uuidv4(); // Generate raw UUID without prefix
     const appUrl = process.env.APP_URL || 'http://localhost:4000';
 console.log(amount);
     // Create Plisio invoice with required fields only
     // All other fields are now handled in plisioService
     const invoice = await createInvoice({
-      order_number: orderId,
+order_number: orderId,
       amount: amount,
       // All other fields are now hardcoded in plisioService
     });
-
+console.log("invoice", invoice);
     if (!invoice.success || !invoice.data) {
       const errorMessage = invoice.error || 'Failed to create payment invoice';
       console.error('Failed to create invoice:', errorMessage);
@@ -151,7 +156,7 @@ console.log(amount);
       },
     };
 
-    // Save payment to database with proper type conversion
+    // Save payment to database with explicit column mapping
     await db.insert(paymentsTable).values({
       id: payment.id,
       userId: payment.userId,
@@ -159,9 +164,10 @@ console.log(amount);
       type: payment.type,
       status: payment.status,
       orderId: payment.orderId,
-      // Convert to string for numeric fields as Drizzle will handle the conversion
-      inrAmount: String(payment.inrAmount),
-      amount: String(payment.amount),
+      // Use snake_case for database column names
+   
+      amount: payment.amount.toString(),
+      inr_amount: payment.inrAmount.toString(),
       currency: payment.currency || 'USD',
       invoiceId: payment.invoiceId || null,
       invoiceUrl: payment.invoiceUrl || null,
@@ -274,8 +280,8 @@ export const getPaymentStatus = async (orderId: string) => {
     // to the correct types expected by DbPaymentRow
     const paymentRow: DbPaymentRow = {
       ...rawPaymentRow,
-      // Ensure inrAmount is a string as per DbPaymentRow type
-      inrAmount: rawPaymentRow.inrAmount.toString(),
+      // Ensure inr_amount is a string as per DbPaymentRow type
+      inr_amount: rawPaymentRow.inr_amount.toString(),
       // amount is already a string in the database
       amount: rawPaymentRow.amount.toString(),
       // Handle voucher details if they exist
@@ -387,10 +393,12 @@ export const handlePaymentCallback = async (data: PaymentCallbackData) => {
     }
     
     // Find the payment in our database
+    // Remove 'order_' prefix if it exists when querying the database
+    const cleanOrderNumber = order_number.startsWith('order_') ? order_number.substring(6) : order_number;
     const [paymentRow] = await db
       .select()
       .from(paymentsTable)
-      .where(eq(paymentsTable.orderId, order_number))
+      .where(eq(paymentsTable.orderId, cleanOrderNumber))
       .limit(1);
     
     if (!paymentRow) {
