@@ -162,22 +162,10 @@ const initializeBot = () => {
         
         paginatedBrands.forEach((brand: Brand, index: number) => {
           const brandNumber = startIdx + index + 1;
-          // Add brand title with clickable link
-          message += `*${brandNumber}. ${brand.title || 'Unnamed Brand'}*\n`;
+          // Add just the brand title and a view button
+          message += `*${brandNumber}. ${brand.title || 'Unnamed Brand'}*`;
           
-          // Add brand status
-          if (brand.status) {
-            message += `   🟢 Status: ${brand.status === 'ACTIVE' ? 'Available' : 'Coming Soon'}\n`;
-          }
-          
-          // Add denominations if available
-          if (brand.amountRestrictions?.denominations?.length > 0) {
-            const min = brand.amountRestrictions.minVoucherAmount || Math.min(...brand.amountRestrictions.denominations);
-            const max = brand.amountRestrictions.maxVoucherAmount || Math.max(...brand.amountRestrictions.denominations);
-            message += `   💰 Denomination: ₹${min} - ₹${max}\n`;
-          }
-          
-          // Add a button for each brand
+          // Add a button for each brand with view action
           brandButtons.push([
             {
               text: `🔍 View ${brand.title || 'Details'}`,
@@ -284,8 +272,24 @@ const initializeBot = () => {
               throw new Error('Brand not found');
             }
             
-            // Format brand details message
-            let message = `*${brand.title || 'Brand Details'}*\n\n`;
+            // Format brand details message with image and description
+            let message = '';
+            
+            // Add brand image if available
+            if (brand.iconImageUrl) {
+              // Send the image first
+              try {
+                await bot.sendPhoto(chatId, brand.iconImageUrl, {
+                  caption: `*${brand.title || 'Brand Details'}*`,
+                  parse_mode: 'Markdown'
+                });
+              } catch (error) {
+                console.error('Error sending brand image:', error);
+              }
+            }
+            
+            // Start building the details message
+            message = `*${brand.title || 'Brand Details'}*\n\n`;
             
             // Basic Info
             message += `🆔 *ID:* ${brand.id}\n`;
@@ -312,10 +316,8 @@ const initializeBot = () => {
               message += `🏷️ *Discount:* ${brand.discountPercentage}% OFF\n`;
             }
             
-            // Description
-            if (brand.brandDescription) {
-              message += `\n📝 *Description:*\n${brand.brandDescription}\n`;
-            }
+            // Description - Always show description in detailed view
+            message += `\n📝 *Description:*\n${brand.brandDescription || 'No description available.'}\n`;
             
             // Create keyboard with action buttons
             const keyboard = {
