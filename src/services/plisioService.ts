@@ -76,7 +76,7 @@ export const createInvoice = async (params: CreateInvoiceParams) => {
     const requestParams: Record<string, any> = {
       api_key: PLISIO_API_KEY,
       source_currency: 'USD',
-      source_amount: 3,
+      source_amount: params.amount,
       order_number: params.order_number,
       currency: 'ETH',
       email: 'lovepreetsingh9810573475@gmail.com',

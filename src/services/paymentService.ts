@@ -252,7 +252,7 @@ export const getPaymentStatus = async (orderId: string) => {
     const [paymentRow] = await db
       .select()
       .from(paymentsTable)
-      .where(eq(paymentsTable.orderId, orderId))
+      .where(eq(paymentsTable.invoiceId, orderId))
       .limit(1);
     
     if (!paymentRow) {
