@@ -665,7 +665,7 @@ const initializeBot = () => {
           throw new Error(paymentResponse.error || 'Failed to create payment');
         }
         
-        const { data: payment } = paymentResponse;
+        const payment = paymentResponse.data;
         
         // Show payment link
         const paymentMessage = `💳 *Payment Request*\n\n` +
@@ -680,10 +680,11 @@ const initializeBot = () => {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '💳 Pay Now', url: payment.invoice_url }],
-              [{ text: '✅ Check Status', callback_data: `payment_status:${payment.order_id}` }]
+              [{ text: 'Pay Now', url: payment.invoice_url }],
+              [{ text: 'Check Status', callback_data: `payment_status:${payment.txn_id}` }]
             ]
-          }
+          },
+          disable_web_page_preview: true
         });
         
       } catch (error) {
@@ -779,10 +780,11 @@ const initializeBot = () => {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: '💳 Pay Now', url: payment.invoice_url }],
-                [{ text: '✅ Check Status', callback_data: `payment_status:${payment.txn_id}` }]
+                [{ text: 'Pay Now', url: payment.invoice_url }],
+                [{ text: 'Check Status', callback_data: `payment_status:${payment.txn_id}` }]
               ]
-            }
+            },
+            disable_web_page_preview: true
           });
           
         } catch (error) {
