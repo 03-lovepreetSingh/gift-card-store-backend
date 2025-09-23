@@ -151,7 +151,7 @@ console.log(amount);
       },
     };
 
-    // Save payment to database
+    // Save payment to database with proper type conversion
     await db.insert(paymentsTable).values({
       id: payment.id,
       userId: payment.userId,
@@ -159,8 +159,9 @@ console.log(amount);
       type: payment.type,
       status: payment.status,
       orderId: payment.orderId,
-      inrAmount: payment.inrAmount.toString(),
-      amount: payment.amount.toString(),
+      // Convert to string for numeric fields as Drizzle will handle the conversion
+      inrAmount: String(payment.inrAmount),
+      amount: String(payment.amount),
       currency: payment.currency || 'USD',
       invoiceId: payment.invoiceId || null,
       invoiceUrl: payment.invoiceUrl || null,
