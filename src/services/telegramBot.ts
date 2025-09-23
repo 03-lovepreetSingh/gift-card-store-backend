@@ -60,6 +60,12 @@ if (!TELEGRAM_BOT_TOKEN) {
 // Create a bot that uses 'polling' to fetch new updates
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
+// Define keyboard button type for TypeScript
+type KeyboardButton = {
+  text: string;
+  callback_data: string;
+};
+
 // Store active commands and their handlers
 const commands: {[key: string]: (chatId: number, match?: RegExpExecArray | null) => void} = {};
 
@@ -138,14 +144,26 @@ const initializeBot = () => {
       const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
       const paginatedBrands = allBrands.slice(startIdx, startIdx + ITEMS_PER_PAGE);
   
+      // Initialize keyboard and message
+      const keyboard = {
+        reply_markup: {
+          inline_keyboard: [] as KeyboardButton[][]
+        }
+      };
+      
       let message = `🎁 *Available Gift Card Brands* (Page ${currentPage}/${totalPages || 1})\n\n`;
       
       if (paginatedBrands.length === 0) {
         message += "No brands found. Please check back later.\n";
       } else {
-        paginatedBrands.forEach((brand: any, index: number) => {
-          // Add brand title
-          message += `*${startIdx + index + 1}. ${brand.title || 'Unnamed Brand'}*\n`;
+        
+        // Create an array to hold inline keyboard buttons
+        const brandButtons: KeyboardButton[][] = [];
+        
+        paginatedBrands.forEach((brand: Brand, index: number) => {
+          const brandNumber = startIdx + index + 1;
+          // Add brand title with clickable link
+          message += `*${brandNumber}. ${brand.title || 'Unnamed Brand'}*\n`;
           
           // Add brand status
           if (brand.status) {
@@ -157,53 +175,44 @@ const initializeBot = () => {
             const min = brand.amountRestrictions.minVoucherAmount || Math.min(...brand.amountRestrictions.denominations);
             const max = brand.amountRestrictions.maxVoucherAmount || Math.max(...brand.amountRestrictions.denominations);
             message += `   💰 Denomination: ₹${min} - ₹${max}\n`;
-            
-            // Show all available denominations if there are only a few
-            if (brand.amountRestrictions.denominations.length <= 5) {
-              message += `   📋 Available: ${brand.amountRestrictions.denominations.map((d: number) => `₹${d}`).join(', ')}\n`;
+          }
+          
+          // Add a button for each brand
+          brandButtons.push([
+            {
+              text: `🔍 View ${brand.title || 'Details'}`,
+              callback_data: `view_brand:${brand.id}`
             }
-          }
-          
-          // Add validity if available
-          if (brand.voucherExpiryInMonths) {
-            message += `   ⏳ Validity: ${brand.voucherExpiryInMonths} months\n`;
-          }
-          
-          // Add discount if available
-          if (brand.discountPercentage) {
-            message += `   🏷️ Discount: ${brand.discountPercentage}% OFF\n`;
-          }
+          ]);
           
           // Add a separator between brands
           message += '\n━━━━━━━━━━━━━━━━━━━━\n\n';
         });
+        
+        // Add the brand buttons to the message options
+        if (brandButtons.length > 0) {
+          keyboard.reply_markup.inline_keyboard = [
+            ...brandButtons,
+            ...keyboard.reply_markup.inline_keyboard
+          ];
+        }
       }
   
-      // Define keyboard button type for TypeScript
-      type KeyboardButton = {
-        text: string;
-        callback_data: string;
-      };
-
-      // Create keyboard with navigation buttons
-      const keyboard: {
-        reply_markup: {
-          inline_keyboard: KeyboardButton[][];
-        };
-      } = {
-        reply_markup: {
-          inline_keyboard: []
-        }
-      };
   
       // Add navigation buttons if needed
       if (totalPages > 1) {
         const navButtons: KeyboardButton[] = [];
         if (currentPage > 1) {
-          navButtons.push({ text: '⬅️ Previous', callback_data: 'brands_prev' });
+          navButtons.push({ 
+            text: '⬅️ Previous', 
+            callback_data: `brands_${currentPage - 1}` 
+          });
         }
         if (currentPage < totalPages) {
-          navButtons.push({ text: 'Next ➡️', callback_data: 'brands_next' });
+          navButtons.push({ 
+            text: 'Next ➡️', 
+            callback_data: `brands_${currentPage + 1}` 
+          });
         }
         if (navButtons.length > 0) {
           keyboard.reply_markup.inline_keyboard.push(navButtons);
@@ -251,10 +260,92 @@ const initializeBot = () => {
   bot.on('callback_query', async (callbackQuery) => {
     const chatId = callbackQuery.message?.chat.id;
     const data = callbackQuery.data;
+    const messageId = callbackQuery.message?.message_id;
   
-    if (!chatId || !data) return;
+    if (!chatId || !data || !messageId) return;
   
     try {
+      // Handle view brand details
+      if (data.startsWith('view_brand:')) {
+        const brandId = data.split(':')[1];
+        if (brandId) {
+          // Show loading message
+          await bot.editMessageText('🔄 Fetching brand details...', {
+            chat_id: chatId,
+            message_id: messageId
+          });
+          
+          try {
+            // Fetch brand details
+            const response = await axios.get<Brand>(`${API_BASE_URL}/brand/${brandId}`);
+            const brand = response.data;
+            
+            if (!brand) {
+              throw new Error('Brand not found');
+            }
+            
+            // Format brand details message
+            let message = `*${brand.title || 'Brand Details'}*\n\n`;
+            
+            // Basic Info
+            message += `🆔 *ID:* ${brand.id}\n`;
+            message += `🟢 *Status:* ${brand.status === 'ACTIVE' ? '✅ Available' : '⏳ Coming Soon'}\n\n`;
+            
+            // Denomination Info
+            if (brand.amountRestrictions) {
+              const { minAmount, maxAmount, denominations } = brand.amountRestrictions;
+              message += `💰 *Price Range:* ₹${minAmount} - ₹${maxAmount}\n`;
+              
+              if (denominations?.length > 0) {
+                message += `📋 *Available Denominations:* ${denominations.map(d => `₹${d}`).join(', ')}\n`;
+              }
+              message += '\n';
+            }
+            
+            // Validity
+            if (brand.voucherExpiryInMonths) {
+              message += `⏳ *Validity:* ${brand.voucherExpiryInMonths} months\n`;
+            }
+            
+            // Discount
+            if (brand.discountPercentage) {
+              message += `🏷️ *Discount:* ${brand.discountPercentage}% OFF\n`;
+            }
+            
+            // Description
+            if (brand.brandDescription) {
+              message += `\n📝 *Description:*\n${brand.brandDescription}\n`;
+            }
+            
+            // Create keyboard with action buttons
+            const keyboard = {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🛒 Buy Now', callback_data: `buy_${brand.id}` }],
+                  [{ text: '🔙 Back to Brands', callback_data: 'brands_1' }]  // Go back to first page
+                ]
+              }
+            };
+            
+            // Update the message with brand details
+            await bot.editMessageText(message, {
+              chat_id: chatId,
+              message_id: messageId,
+              parse_mode: 'Markdown',
+              ...keyboard
+            });
+            
+          } catch (error) {
+            console.error('Error fetching brand details:', error);
+            await bot.editMessageText('❌ Failed to load brand details. Please try again.', {
+              chat_id: chatId,
+              message_id: messageId
+            });
+          }
+        }
+        return;
+      }
+      
       // Handle payment status callbacks
       if (data.startsWith('payment_status:')) {
         const orderId = data.split(':')[1];
@@ -265,14 +356,10 @@ const initializeBot = () => {
   
       // Handle brands pagination
       if (data.startsWith('brands_')) {
-        const action = data.split('_')[1];
-        
-        if (action === 'prev' && currentPage > 1) {
-          currentPage--;
-        } else if (action === 'next') {
-          currentPage++;
+        const page = parseInt(data.split('_')[1]);
+        if (!isNaN(page)) {
+          currentPage = page;
         }
-        // For refresh, keep the same page
   
         // Acknowledge the callback
         await bot.answerCallbackQuery(callbackQuery.id);
@@ -296,9 +383,10 @@ const initializeBot = () => {
   // Command to get brand details by ID
   registerCommand('brand', async (chatId, match) => {
     try {
+      console.log('Match:', match);
       const brandId = match?.[1]?.trim();
       console.log('Brand ID:', brandId);
-      console.log('Match:', match);
+      
       if (!brandId) {
         await sendMessage(chatId, '❌ Please provide a brand ID. Usage: `/brand <id>`', {
           parse_mode: 'Markdown'
