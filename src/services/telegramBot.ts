@@ -361,16 +361,20 @@ const initializeBot = () => {
           try {
             // Get user details from the message
             const user = callbackQuery.from;
-            const amount = payment.amount || 0;
+            const amountUsd = payment.amount || 0;
             
+            // Convert USD to INR (assuming 1 USD = 83.5 INR - you might want to get this from an API)
+            const usdToInrRate = 83.5; // TODO: Consider getting this from an exchange rate API
+            const amountInr = Math.round(amountUsd * usdToInrRate);
+            console.log("Amount in INR:",amountInr)
             // Prepare the order data according to the expected format
             const orderData = {
               productId: userSessions[chatId]?.currentBrandId || '',
               referenceId: `TEL-${Date.now()}-${user.id}`, // Unique reference ID
-              amount: amount.toString(), // Ensure amount is a string
+              amount: amountInr.toString(), // Converted to INR and ensure it's a string
               denominationDetails: [
                 {
-                  denomination: amount.toString(), // Ensure denomination is a string
+                  denomination: amountInr.toString(), // Converted to INR and ensure it's a string
                   quantity: 1
                 }
               ],
