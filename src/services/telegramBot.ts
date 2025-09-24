@@ -137,10 +137,7 @@ const initializeBot = () => {
   // Set bot commands
   bot.setMyCommands([
     { command: 'start', description: 'Start the bot' },
-    { command: 'help', description: 'Show help information' },
-    { command: 'balance', description: 'Check your balance' },
-    { command: 'orders', description: 'View your orders' },
-    { command: 'checkout', description: 'Pay  USDT for a gift card'},
+   
   ]);
 
   // Start command handler
@@ -148,10 +145,8 @@ const initializeBot = () => {
     const welcomeMessage = `👋 Welcome to Gift Card Store Bot!\n\n` +
       `*Available commands:*\n` +
       `/start - Show this welcome message\n` +
-      `/help - Show help information\n` +
-      `/balance - Check your balance\n` +
-      `/orders - View your orders\n` +
-      `/checkout - Pay  USDT for a gift card`;
+      `/brands - Browse available gift card brands\n` ;
+      
     
     sendMessage(chatId, welcomeMessage, { parse_mode: 'Markdown' });
   });
@@ -317,7 +312,6 @@ const initializeBot = () => {
             
             // Build the caption with all brand details
             let caption = `*${brand.title || 'Brand Details'}*\n\n`;
-            caption += `🆔 *ID:* ${brand.id}\n`;
             caption += `🟢 *Status:* ${brand.status === 'ACTIVE' ? '✅ Available' : '⏳ Coming Soon'}\n\n`;
             
             // Denomination Info
@@ -524,12 +518,7 @@ const initializeBot = () => {
   // Update the setMyCommands to include the new commands
   bot.setMyCommands([
     { command: 'start', description: 'Start the bot' },
-    { command: 'help', description: 'Show help information' },
-    { command: 'balance', description: 'Check your balance' },
-    { command: 'orders', description: 'View your orders' },
-    { command: 'checkout', description: 'Pay USDT for a gift card' },
     { command: 'brands', description: 'Browse available gift card brands' },
-    { command: 'brand', description: 'Get details of a specific brand by ID' }
   ]);
   
   // Update the help message to include the new command
@@ -982,7 +971,7 @@ const initializeBot = () => {
       
       const message = `💳 *Payment Status*\n\n` +
         `Order ID: *${orderId}*\n` +
-        `Amount: *${payment.amount || 'N/A'} USDT*\n` +
+        `Amount: *${payment.inrAmount || 'N/A'} Rs. *\n` +
         `Status: ${statusEmoji} *${statusText}*\n\n${additionalMessage}`;
       
       // Prepare reply markup based on status
