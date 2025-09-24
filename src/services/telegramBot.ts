@@ -659,7 +659,7 @@ const initializeBot = () => {
         // Show payment link
         const paymentMessage = `💳 *Payment Request*\n\n` +
           `Brand: *${brand.title}*\n` +
-          `Amount: *${amount} USDT*\n` +
+          `Amount: *${amount} Rs*\n` +
           `Status: *Pending*\n\n` +
           `[Click here to pay](${payment.invoice_url})`;
         
